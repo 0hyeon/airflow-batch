@@ -9,7 +9,7 @@ jobs:
       - name: checkout repo
         uses: actions/checkout@v2
         with:
-          repository: 0hyeon/airflow
+          repository: 0hyeon/airflow-batch
           path: airflow
           ref: ${{ github.ref }}
 
