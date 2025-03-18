@@ -1,0 +1,87 @@
+name: create-airflow
+
+on: push
+
+jobs:
+  oncreated:
+    if: ${{ github.event.created == true }}
+    runs-on: [airflow]
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v2
+        with:
+          repository: byeongjokim/fast-campus-lecture
+          path: fast-campus-lecture
+          ref: ${{ github.ref }}
+
+      - name: install kubectl, helm
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
+          curl -LO "https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz" && tar -zxvf helm-v3.3.0-linux-amd64.tar.gz && chmod +x linux-amd64/helm && mv linux-amd64/helm /usr/local/bin/helm
+
+      - name: get ref name
+        run: |
+          REF_NAME=${GITHUB_REF##*/}
+          echo running on branch ${REF_NAME}
+          echo "REF_NAME=${REF_NAME}" >> $GITHUB_ENV
+
+      - name: create pg db
+        run: |
+          cd fast-campus-lecture/lecture_2
+
+          cat job/db-create.yaml | sed -r "s:BRANCH:${REF_NAME}:g" | kubectl apply -f -
+
+      - name: sync dags
+        run: |
+          mkdir -p /data/airflow/airflow-${REF_NAME}/dags
+          mkdir -p /data/airflow/airflow-${REF_NAME}/logs
+
+          mv fast-campus-lecture/lecture_2/dags/* /data/airflow/airflow-${REF_NAME}/dags/
+
+          chmod -R 777 /data/airflow/airflow-${REF_NAME}
+
+      - name: create airflow
+        run: |
+          cd fast-campus-lecture/lecture_2
+
+          helm template airflow --set appName=${REF_NAME} | kubectl apply -f -
+
+      - name: show airflow ip
+        run: |
+          sleep 10
+          kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress"
+
+  onpushed:
+    if: ${{ github.event.created == false }}
+    runs-on: [airflow]
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v2
+        with:
+          repository: byeongjokim/fast-campus-lecture
+          path: fast-campus-lecture
+          ref: ${{ github.ref }}
+
+      - name: install kubectl, helm
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
+          curl -LO "https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz" && tar -zxvf helm-v3.3.0-linux-amd64.tar.gz && chmod +x linux-amd64/helm && mv linux-amd64/helm /usr/local/bin/helm
+
+      - name: get ref name
+        run: |
+          REF_NAME=${GITHUB_REF##*/}
+          echo running on branch ${REF_NAME}
+          echo "REF_NAME=${REF_NAME}" >> $GITHUB_ENV
+
+      - name: sync dags
+        run: |
+          mkdir -p /data/airflow/airflow-${REF_NAME}/dags
+          mkdir -p /data/airflow/airflow-${REF_NAME}/logs
+
+          mv fast-campus-lecture/lecture_2/dags/* /data/airflow/airflow-${REF_NAME}/dags/
+
+          chmod -R 777 /data/airflow/airflow-${REF_NAME}
+
+      - name: show airflow ip
+        run: |
+          kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress"

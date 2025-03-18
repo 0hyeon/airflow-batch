@@ -1,0 +1,23 @@
+appName: main
+
+webReplicas: 1
+
+airflow:
+  image: apache/airflow
+  imageTag: "2.3.2"
+  imagePullPolicy: Always
+  port: 8080
+
+service:
+  port: 8080
+
+worker:
+  image: apache/airflow
+  imageTag: "2.3.2"
+  imagePullPolicy: IfNotPresent
+
+config:
+  executor: "KubernetesExecutor"
+
+postgresql:
+  conn: postgresql://airflow:airflow@airflow-postgres:5432
