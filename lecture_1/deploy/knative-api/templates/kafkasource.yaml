@@ -1,0 +1,15 @@
+apiVersion: sources.knative.dev/v1beta1
+kind: KafkaSource
+metadata:
+  name: category-match-source
+spec:
+  consumerGroup: {{ .Values.kafka.groupId }}
+  bootstrapServers:
+    - {{ .Values.kafka.brokers }}
+  topics:
+    - {{ .Values.kafka.topic }}
+  sink:
+    ref:
+      apiVersion: serving.knative.dev/v1
+      kind: Service
+      name: category-match-service

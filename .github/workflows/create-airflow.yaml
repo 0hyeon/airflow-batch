@@ -10,7 +10,7 @@ jobs:
       - name: checkout repo
         uses: actions/checkout@v2
         with:
-          repository: byeongjokim/fast-campus-lecture
+          repository: 0hyeon/airflow-batch
           path: fast-campus-lecture
           ref: ${{ github.ref }}
 
@@ -58,7 +58,7 @@ jobs:
       - name: checkout repo
         uses: actions/checkout@v2
         with:
-          repository: byeongjokim/fast-campus-lecture
+          repository: 0hyeon/airflow-batch
           path: fast-campus-lecture
           ref: ${{ github.ref }}
 

@@ -7,17 +7,17 @@ kind: ConfigMap
 metadata:
   name: airflow-config
 data:
-  AIRFLOW__CORE__DEFAULT_TIMEZONE: "Asia/Seoul"
-  AIRFLOW__CORE__DAGS_FOLDER: "/dags"
-  AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: "Asia/Seoul"
-  AIRFLOW__WEBSERVER__SECRET_KEY: "0hyeon"
-  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
-  AIRFLOW__LOGGING__BASE_LOG_FOLDER: "/logs"
-  AIRFLOW__LOGGING__DAG_PROCESSOR_MANAGER_LOG_LOCATION: "/logs/dag_processor_manager/dag_processor_manager.log"
-  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: "apache/airflow"
-  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: "2.3.2"
-  AIRFLOW__KUBERNETES__POD_TEMPLATE_FILE: "/airflow-pod.yaml"
-  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql://airflow:airflow@airflow-postgres:5432/airflow"
+  AIRFLOW__CORE__DEFAULT_TIMEZONE: 'Asia/Seoul'
+  AIRFLOW__CORE__DAGS_FOLDER: '/dags'
+  AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: 'Asia/Seoul'
+  AIRFLOW__WEBSERVER__SECRET_KEY: '0hyeon'
+  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: '30'
+  AIRFLOW__LOGGING__BASE_LOG_FOLDER: '/logs'
+  AIRFLOW__LOGGING__DAG_PROCESSOR_MANAGER_LOG_LOCATION: '/logs/dag_processor_manager/dag_processor_manager.log'
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: '0hyeon/airflow-custom'
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: '2.11.3'
+  AIRFLOW__KUBERNETES__POD_TEMPLATE_FILE: '/airflow-pod.yaml'
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: 'postgresql://airflow:airflow@airflow-postgres:5432/airflow'
 
 ---
 # Source: airflow/templates/airflow-templates.yaml
@@ -43,7 +43,7 @@ data:
           env:
             - name: AIRFLOW__CORE__EXECUTOR
               value: LocalExecutor
-          image: apache/airflow:2.3.2
+          image: 0hyeon/airflow-custom:2.11.3
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: airflow-pvc
@@ -231,8 +231,7 @@ spec:
     spec:
       containers:
         - name: airflow-web
-          # image: apache/airflow:2.3.2
-          image: 0hyeon/hyeon-airflow-image:latest
+          image: 0hyeon/airflow-custom:2.11.3
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -241,7 +240,7 @@ spec:
                 name: airflow-config
           env:
             - name: AIRFLOW__CORE__EXECUTOR
-              value: "KubernetesExecutor"
+              value: 'KubernetesExecutor'
           volumeMounts:
             - name: airflow-pvc
               mountPath: /dags
@@ -254,7 +253,7 @@ spec:
               subPath: airflow-web-config-template.py
             - name: nfs-env-volume # ✅ NFS 볼륨 추가
               mountPath: /mnt/nts
-          command: ["/bin/bash", "-c"]
+          command: ['/bin/bash', '-c']
           args:
             - python -m pip install --no-cache-dir pandas boto3 requests pyarrow confluent-kafka apache-airflow-providers-cncf-kubernetes &&
               export $(grep -v '^#' /mnt/nts/.env | xargs) && airflow webserver;
@@ -294,8 +293,7 @@ spec:
     spec:
       containers:
         - name: airflow-scheduler
-          # image: apache/airflow:2.3.2
-          image: 0hyeon/hyeon-airflow-image:latest
+          image: 0hyeon/airflow-custom:2.11.3
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
@@ -312,7 +310,7 @@ spec:
               subPath: airflow-pod.yaml
             - name: nfs-env-volume
               mountPath: /mnt/nts
-          command: ["/bin/bash", "-c"]
+          command: ['/bin/bash', '-c']
           args:
             - python -m pip install --no-cache-dir pandas boto3 requests pyarrow confluent-kafka apache-airflow-providers-cncf-kubernetes &&
               export $(grep -v '^#' /mnt/nts/.env | xargs) && airflow scheduler;
