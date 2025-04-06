@@ -2,6 +2,9 @@ apiVersion: sources.knative.dev/v1beta1
 kind: KafkaSource
 metadata:
   name: category-match-source
+  namespace: default
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false  # ✅ 추가!
 spec:
   consumerGroup: {{ .Values.kafka.groupId }}
   bootstrapServers:

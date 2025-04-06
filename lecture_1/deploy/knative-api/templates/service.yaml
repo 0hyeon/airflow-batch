@@ -8,6 +8,7 @@ spec:
       annotations:
         autoscaling.knative.dev/minScale: "0"
         autoscaling.knative.dev/maxScale: "10"
+        argocd.argoproj.io/sync-options: Prune=false
     spec:
       containers:
         - image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
