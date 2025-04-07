@@ -1,12 +1,20 @@
 image:
   repository: 0hyeon/kafka-worker
-  tag: '0.1.0'
+  tag: '0.1.1'
   pullPolicy: IfNotPresent
 
 kafka:
   brokers: kafka-service.kafka.svc.cluster.local:9092
   topic: category-match-in
   groupId: category-match-group
+
+resources:
+  limits:
+    cpu: "2"
+    memory: "4Gi"
+  requests:
+    cpu: "1"
+    memory: "2Gi"
 
 nfs:
   pvc: nfs-pvc
