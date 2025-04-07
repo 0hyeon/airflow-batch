@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: category-match
+spec:
+  serviceName: category-match
+  replicas: 1
+  selector:
+    matchLabels:
+      app: category-match
+  template:
+    metadata:
+      labels:
+        app: category-match
+    spec:
+      containers:
+        - name: main
+          image: '{{ .Values.image.repository }}:{{ .Values.image.tag }}'
+          imagePullPolicy: Always
+          args:
+            - '--topic_to_consume={{ .Values.kafka.topic }}'
+            - '--brokers={{ .Values.kafka.brokers }}'
+            - '--group_id={{ .Values.kafka.groupId }}'
+          volumeMounts:
+            - name: nfs-volume
+              mountPath: /data
+          resources:
+            limits:
+              cpu: '{{ .Values.resources.limits.cpu }}'
+              memory: '{{ .Values.resources.limits.memory }}'
+            requests:
+              cpu: '{{ .Values.resources.requests.cpu }}'
+              memory: '{{ .Values.resources.requests.memory }}'
+      volumes:
+        - name: nfs-volume
+          persistentVolumeClaim:
+            claimName: '{{ .Values.nfs.pvc }}'
