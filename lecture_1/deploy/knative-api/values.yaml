@@ -9,12 +9,12 @@ kafka:
   groupId: category-match-group
 
 resources:
-  limits:
-    cpu: "2"
-    memory: "4Gi"
   requests:
-    cpu: "1"
-    memory: "2Gi"
+    cpu: '500m'
+    memory: '2Gi'
+  limits:
+    cpu: '1'
+    memory: '4Gi'
 
 nfs:
   pvc: nfs-pvc
