@@ -10,6 +10,8 @@ spec:
       app: category-match
   template:
     metadata:
+      annotations:
+        checksum/config: {{ .Values | toJson | sha256sum }}
       labels:
         app: category-match
     spec:
