@@ -11,14 +11,15 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: {{ .Values | toJson | sha256sum }}
+        checksum/config: '{{ .Values | toJson | sha256sum }}'
       labels:
         app: category-match
     spec:
-      containers:
+      containers:  # ✅ 들여쓰기 여기서 시작!
         - name: main
           image: '{{ .Values.image.repository }}:{{ .Values.image.tag }}'
           imagePullPolicy: Always
+          command: ["/opt/bitnami/scripts/spark/run.sh"]  # ✅ 여기도 ok!
           args:
             - '--topic_to_consume={{ .Values.kafka.topic }}'
             - '--brokers={{ .Values.kafka.brokers }}'
