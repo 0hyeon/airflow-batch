@@ -1,3 +1,4 @@
+{{- if eq .Values.deployMode "statefulset" }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -15,11 +16,11 @@ spec:
       labels:
         app: category-match
     spec:
-      containers:  # ✅ 들여쓰기 여기서 시작!
+      containers:
         - name: main
           image: '{{ .Values.image.repository }}:{{ .Values.image.tag }}'
           imagePullPolicy: Always
-          command: ["/opt/bitnami/scripts/spark/run.sh"]  # ✅ 여기도 ok!
+          command: ["/opt/bitnami/scripts/spark/run.sh"]
           args:
             - '--topic_to_consume={{ .Values.kafka.topic }}'
             - '--brokers={{ .Values.kafka.brokers }}'
@@ -38,3 +39,4 @@ spec:
         - name: nfs-volume
           persistentVolumeClaim:
             claimName: '{{ .Values.nfs.pvc }}'
+{{- end }}

@@ -1,3 +1,5 @@
+deployMode: ksvc  # 또는 statefulset
+
 image:
   repository: 0hyeon/kafka-worker
   tag: '0.1.1'

@@ -4,15 +4,20 @@ metadata:
   name: category-match-source
   namespace: default
   annotations:
-    argocd.argoproj.io/sync-options: Prune=false  # ✅ 추가!
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   consumerGroup: {{ .Values.kafka.groupId }}
   bootstrapServers:
     - {{ .Values.kafka.brokers }}
   topics:
     - {{ .Values.kafka.topic }}
+  {{- if eq .Values.deployMode "ksvc" }}
   sink:
     ref:
       apiVersion: serving.knative.dev/v1
       kind: Service
       name: category-match-service
+  {{- else if eq .Values.deployMode "statefulset" }}
+  sink:
+    uri: http://category-match.default.svc.cluster.local
+  {{- end }}
