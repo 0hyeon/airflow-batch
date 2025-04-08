@@ -6,7 +6,7 @@ image:
   pullPolicy: IfNotPresent
 
 kafka:
-  brokers: kafka-service.kafka.svc.cluster.local:9092
+  brokers: 34.28.227.135:9092
   topic: category-match-in
   groupId: category-match-group
 
