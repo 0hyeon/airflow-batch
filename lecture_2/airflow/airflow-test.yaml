@@ -32,7 +32,7 @@ data:
     kind: Pod
     metadata: dummy
     spec:
-      restartPollicy: Never
+      restartPolicy: Never
       containers:
         - name: base
           envFrom:
@@ -40,7 +40,7 @@ data:
                 name: airflow-config
           env:
             - name: AIRFLOW__CORE__EXECUTOR
-              value: LocalExecutor
+              value: KubernetesExecutor
           image: apache/airflow:2.3.2
           imagePullPolicy: IfNotPresent
           volumeMounts:
