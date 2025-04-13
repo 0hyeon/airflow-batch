@@ -144,7 +144,7 @@ check_s3_files = PythonOperator(
 
 # ✅ 4. EMR에서 PySpark 작업 실행
 def submit_spark_job(**kwargs):
-    client = boto3.client("emr", region_name=AWS_REGION)
+    client = session.client("emr")
     cluster_id = kwargs["ti"].xcom_pull(task_ids="create_emr", key="emr_cluster_id")
 
     response = client.add_job_flow_steps(
@@ -183,7 +183,7 @@ run_spark_job = PythonOperator(
 
 # ✅ 5. 작업 완료 후 클러스터 자동 종료
 def wait_for_spark_job(**kwargs):
-    client = boto3.client("emr", region_name=AWS_REGION)
+    client = session.client("emr")
     cluster_id = kwargs["ti"].xcom_pull(task_ids="create_emr", key="emr_cluster_id")
     step_id = kwargs["ti"].xcom_pull(task_ids="run_spark_job", key="spark_step_id")
 
