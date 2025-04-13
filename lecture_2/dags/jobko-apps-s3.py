@@ -20,7 +20,7 @@ yesterday_str = yesterday.strftime("%Y-%m-%d")  # ✅ 문자열로 변환
 
 TOKEN = Variable.get("TOKEN")
 HEADERS = {"accept": "application/json", "authorization": f"Bearer {TOKEN}"}
-
+#
 URLS = {
     "data_aos_onepick_ua": f"https://hq1.appsflyer.com/api/raw-data/export/app/com.jobkorea.app/in_app_events_report/v5?timezone=Asia%2FSeoul&from={yesterday:%Y-%m-%d}&to={yesterday:%Y-%m-%d}&category=standard&event_name=1pick_view_jobposting&additional_fields=device_category,match_type,conversion_type,campaign_type,device_model,keyword_id",
     # "data_aos_onepick_retarget": f"https://hq1.appsflyer.com/api/raw-data/export/app/com.jobkorea.app/in-app-events-retarget/v5?timezone=Asia%2FSeoul&from={yesterday:%Y-%m-%d}&to={yesterday:%Y-%m-%d}&category=standard&event_name=1pick_view_jobposting&additional_fields=device_category,match_type,conversion_type,campaign_type,device_model,keyword_id",
