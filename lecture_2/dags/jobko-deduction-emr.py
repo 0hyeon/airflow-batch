@@ -29,11 +29,16 @@ dag = DAG(
     schedule_interval="@daily",
     catchup=False,
 )
+session = boto3.Session(
+    aws_access_key_id=Variable.get("AWS_ACCESS_KEY"),
+    aws_secret_access_key=Variable.get("AWS_SECRET_KEY"),
+    region_name=Variable.get("AWS_DEFAULT_REGION"),
+)
 
 
 # ✅ 1. EMR 클러스터 생성
 def create_emr_cluster(**kwargs):
-    client = boto3.client("emr", region_name=AWS_REGION)
+    client = session.client("emr")
     response = client.run_job_flow(
         Name="jobko-emr-cluster",
         ReleaseLabel="emr-6.7.0",
@@ -81,7 +86,7 @@ create_emr = PythonOperator(
 
 # ✅ 2. 클러스터가 `WAITING` 상태가 될 때까지 대기
 def wait_for_emr_cluster(**kwargs):
-    client = boto3.client("emr", region_name=AWS_REGION)
+    client = session.client("emr")
     cluster_id = kwargs["ti"].xcom_pull(task_ids="create_emr", key="emr_cluster_id")
 
     print(f"🔄 EMR 클러스터 {cluster_id} 활성화 대기 중...")
@@ -109,11 +114,6 @@ wait_for_cluster = PythonOperator(
 
 # ✅ 3. S3 파일 존재 여부 확인
 def check_all_s3_files():
-    session = boto3.Session(
-        aws_access_key_id=Variable.get("AWS_ACCESS_KEY"),
-        aws_secret_access_key=Variable.get("AWS_SECRET_KEY"),
-        region_name=Variable.get("AWS_DEFAULT_REGION"),
-    )
     s3 = session.client("s3")
     files = [
         "data_aos_onepick_retarget.parquet",
