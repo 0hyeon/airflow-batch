@@ -11,7 +11,7 @@ data:
     kind: Pod
     metadata: dummy
     spec:
-      restartPollicy: Never
+      restartPolicy: Never
       containers:
         - name: base
           envFrom:
