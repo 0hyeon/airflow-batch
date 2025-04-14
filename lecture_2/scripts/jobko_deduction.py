@@ -1,21 +1,20 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, unix_timestamp, count, lit
-from functools import reduce
-from datetime import datetime, timedelta
+import traceback
 
-spark = SparkSession.builder.appName("deduction_processing_v2").getOrCreate()
+spark = SparkSession.builder.appName("deduction_processing_v3").getOrCreate()
 
-# 날짜 기반 경로
-yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+yesterday = "2025-04-13"
 S3_BUCKET = "fc-practice2"
 S3_INPUT_PREFIX = f"apps_flyer_jobko/date={yesterday}/"
+S3_RENAMED_PREFIX = f"apps_flyer_jobko/renamed/date={yesterday}/"
 S3_OUTPUT_PREFIX = f"apps_flyer_jobko/deduction_results/"
 
-# 대상 파일
 files = [
     "data_aos_onepick_retarget.parquet",
     "data_aos_onepick_ua.parquet",
     "data_aos_retarget.parquet",
+    "data_aos_ua.parquet",
     "data_ios_onepick_retarget.parquet",
     "data_ios_onepick_ua.parquet",
     "data_ios_retarget.parquet",
@@ -25,24 +24,39 @@ files = [
 AOS_MEDIA_SOURCE = ["appier_int", "adisonofferwall_int", "cashfriends_int", "greenp_int", "buzzad_int"]
 IOS_MEDIA_SOURCE = ["adisonofferwall_int", "cashfriends_int", "greenp_int", "buzzad_int"]
 
-# 누적 저장용 리스트
 combined_normal, combined_prod, combined_itet, combined_ctit, combined_false, combined_onepick = ([] for _ in range(6))
 
+def normalize_column_names(df):
+    new_columns = [col_name.replace(" ", "_").replace("-", "_") for col_name in df.columns]
+    return df.toDF(*new_columns)
+
+# ✅ Step 1: 컬럼 정규화 후 parquet 재저장
 for file in files:
     try:
-        df = spark.read.parquet(f"s3://{S3_BUCKET}/{S3_INPUT_PREFIX}{file}")
-        df = reduce(lambda df, name: df.withColumnRenamed(name, name.replace(" ", "_")), df.columns, df)
+        s3_path = f"s3://{S3_BUCKET}/{S3_INPUT_PREFIX}{file}"
+        print(f"📦 컬럼 정제 및 저장: {file}")
+        df = spark.read.option("mergeSchema", "true").parquet(s3_path)
+        df_clean = normalize_column_names(df)
+        df_clean.write.mode("overwrite").parquet(f"s3://{S3_BUCKET}/{S3_RENAMED_PREFIX}{file}")
+    except Exception as e:
+        print(f"❌ 컬럼 정제 실패 - {file}: {e}")
+        traceback.print_exc()
+
+# ✅ Step 2: 필터링 로직 적용
+for file in files:
+    try:
+        print(f"📂 처리 시작: {file}")
+        s3_path = f"s3://{S3_BUCKET}/{S3_RENAMED_PREFIX}{file}"
+        df = spark.read.parquet(s3_path)
 
         df = df.withColumn("Event_Time", col("Event_Time").cast("timestamp"))
         df = df.withColumn("Install_Time", col("Install_Time").cast("timestamp"))
         df = df.withColumn("Time_Diff", (unix_timestamp("Event_Time") - unix_timestamp("Install_Time")) / 3600)
 
-        # ITET 필터
         df_itet = df.filter(col("Time_Diff") >= 24 * 1.05).drop("Time_Diff")
         df = df.filter(col("Time_Diff") < 24 * 1.05).drop("Time_Diff")
         combined_itet.append(df_itet.withColumn("구분", lit("ITET")))
 
-        # CTIT 필터
         if "Attributed_Touch_Time" in df.columns:
             df = df.withColumn("Attributed_Touch_Time", col("Attributed_Touch_Time").cast("timestamp"))
             df = df.withColumn("CTIT_Diff", (unix_timestamp("Install_Time") - unix_timestamp("Attributed_Touch_Time")) / 3600)
@@ -75,16 +89,18 @@ for file in files:
 
         elif "onepick" in lower_name:
             combined_onepick.append(df.withColumn("구분", lit("정상")))
-            continue  # 조기 리턴
+            continue
 
         combined_normal.append(df.withColumn("구분", lit("정상")))
 
     except Exception as e:
         print(f"❌ 오류 발생 - {file}: {e}")
+        traceback.print_exc()
 
-# 모든 데이터 통합
+# ✅ Step 3: 통합 저장
 all_dataframes = combined_normal + combined_prod + combined_itet + combined_ctit + combined_false + combined_onepick
 output_s3_path = f"s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}{yesterday}_final_result"
+
 if all_dataframes:
     result_df = all_dataframes[0]
     for df in all_dataframes[1:]:
@@ -93,8 +109,6 @@ if all_dataframes:
     print("✅ S3 최종 저장 완료")
 else:
     print("⚠️ 필터링된 데이터가 없습니다.")
-    empty_schema = df.select("Event_Time").schema  # 최소 컬럼으로 빈 DataFrame 스키마 구성
-    spark.createDataFrame([], empty_schema).write.mode("overwrite").option("header", True).csv(output_s3_path)
-
+    spark.createDataFrame([], schema="Event_Time timestamp").write.mode("overwrite").option("header", True).csv(output_s3_path)
 
 spark.stop()

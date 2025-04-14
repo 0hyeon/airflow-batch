@@ -61,7 +61,7 @@ def create_emr_cluster(**kwargs):
                 },
             ],
             "Ec2KeyName": "test",
-            "KeepJobFlowAliveWhenNoSteps": True,  # ✅ 스텝 실행 후 유지 (작업 실행 후 자동 종료 예정)
+            "KeepJobFlowAliveWhenNoSteps": False,  # ✅ 스텝 실행 후 유지 (작업 실행 후 자동 종료 예정)
             "TerminationProtected": False,
         },
         JobFlowRole="EMR_EC2_DefaultRole",
