@@ -2,12 +2,11 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, unix_timestamp, count, lit
 import traceback
 
-spark = SparkSession.builder.appName("deduction_processing_v3").getOrCreate()
+spark = SparkSession.builder.appName("deduction_processing_v4_alias").getOrCreate()
 
 yesterday = "2025-04-13"
 S3_BUCKET = "fc-practice2"
 S3_INPUT_PREFIX = f"apps_flyer_jobko/date={yesterday}/"
-S3_RENAMED_PREFIX = f"apps_flyer_jobko/renamed/date={yesterday}/"
 S3_OUTPUT_PREFIX = f"apps_flyer_jobko/deduction_results/"
 
 files = [
@@ -30,24 +29,13 @@ def normalize_column_names(df):
     new_columns = [col_name.replace(" ", "_").replace("-", "_") for col_name in df.columns]
     return df.toDF(*new_columns)
 
-# ✅ Step 1: 컬럼 정규화 후 parquet 재저장
-for file in files:
-    try:
-        s3_path = f"s3://{S3_BUCKET}/{S3_INPUT_PREFIX}{file}"
-        print(f"📦 컬럼 정제 및 저장: {file}")
-        df = spark.read.option("mergeSchema", "true").parquet(s3_path)
-        df_clean = normalize_column_names(df)
-        df_clean.write.mode("overwrite").parquet(f"s3://{S3_BUCKET}/{S3_RENAMED_PREFIX}{file}")
-    except Exception as e:
-        print(f"❌ 컬럼 정제 실패 - {file}: {e}")
-        traceback.print_exc()
-
-# ✅ Step 2: 필터링 로직 적용
 for file in files:
     try:
         print(f"📂 처리 시작: {file}")
-        s3_path = f"s3://{S3_BUCKET}/{S3_RENAMED_PREFIX}{file}"
-        df = spark.read.parquet(s3_path)
+        s3_path = f"s3://{S3_BUCKET}/{S3_INPUT_PREFIX}{file}"
+
+        df_raw = spark.read.option("mergeSchema", "true").parquet(s3_path)
+        df = normalize_column_names(df_raw)
 
         df = df.withColumn("Event_Time", col("Event_Time").cast("timestamp"))
         df = df.withColumn("Install_Time", col("Install_Time").cast("timestamp"))
@@ -97,7 +85,7 @@ for file in files:
         print(f"❌ 오류 발생 - {file}: {e}")
         traceback.print_exc()
 
-# ✅ Step 3: 통합 저장
+# ✅ 최종 저장
 all_dataframes = combined_normal + combined_prod + combined_itet + combined_ctit + combined_false + combined_onepick
 output_s3_path = f"s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}{yesterday}_final_result"
 
