@@ -160,8 +160,6 @@ def submit_spark_job(**kwargs):
                         "--deploy-mode",
                         "cluster",  # 클러스터 모드에서 실행 (마스터 노드에서 실행)
                         f"s3://{S3_BUCKET}/scripts/jobko_deduction.py",  # 실행할 PySpark 스크립트 경로
-                        f"s3://{S3_BUCKET}/{S3_INPUT_PREFIX}",  # 첫 번째 인자: 입력 데이터 (S3에서 읽기)
-                        f"s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}",  # 두 번째 인자: 출력 데이터 (S3에 저장)
                     ],
                 },
             }
