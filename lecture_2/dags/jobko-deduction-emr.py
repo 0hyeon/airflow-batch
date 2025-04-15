@@ -41,8 +41,8 @@ def create_emr_cluster(**kwargs):
     client = session.client("emr")
     response = client.run_job_flow(
         Name="jobko-emr-cluster",
-        ReleaseLabel="emr-6.7.0",
-        Applications=[{"Name": "Hadoop"}, {"Name": "Spark"}],
+        ReleaseLabel="emr-6.15.0",
+        Applications=[{"Name": "Spark"}],
         Instances={
             "InstanceGroups": [
                 {
