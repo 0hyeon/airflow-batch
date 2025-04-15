@@ -207,22 +207,22 @@ wait_for_spark = PythonOperator(
     dag=dag,
 )
 
-# 6. 이전 DAG 실행
-trigger_previous_dag = TriggerDagRunOperator(
-    task_id="trigger_previous_dag",
-    trigger_dag_id="jobko_apps_deduction_daily_to_s3_storage_sequential",
-    dag=dag,
-)
+# # 6. 이전 DAG 실행
+# trigger_previous_dag = TriggerDagRunOperator(
+#     task_id="trigger_previous_dag",
+#     trigger_dag_id="jobko_apps_deduction_daily_to_s3_storage_sequential",
+#     dag=dag,
+# )
 
-# 7. 이전 DAG 완료 확인
-wait_for_previous_dag = ExternalTaskSensor(
-    task_id="wait_for_previous_dag",
-    external_dag_id="jobko_apps_deduction_daily_to_s3_storage_sequential",
-    timeout=3600,
-    mode="poke",
-    poke_interval=60,
-    dag=dag,
-)
+# # 7. 이전 DAG 완료 확인
+# wait_for_previous_dag = ExternalTaskSensor(
+#     task_id="wait_for_previous_dag",
+#     external_dag_id="jobko_apps_deduction_daily_to_s3_storage_sequential",
+#     timeout=3600,
+#     mode="poke",
+#     poke_interval=60,
+#     dag=dag,
+# )
 
 # 8. DAG 실행 순서 설정
 

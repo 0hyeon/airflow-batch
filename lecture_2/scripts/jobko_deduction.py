@@ -2,13 +2,16 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, unix_timestamp, count, lit
 import traceback
 
-spark = SparkSession.builder.appName("deduction_processing_v4_alias").getOrCreate()
+spark = SparkSession.builder.appName("deduction_processing_single_file").getOrCreate()
 
+# 경로
 yesterday = "2025-04-13"
 S3_BUCKET = "fc-practice2"
 S3_INPUT_PREFIX = f"apps_flyer_jobko/date={yesterday}/"
-S3_OUTPUT_PREFIX = f"apps_flyer_jobko/deduction_results/"
+S3_OUTPUT_PREFIX = f"apps_flyer_jobko/deduction_results/{yesterday}_final_result.csv"
+output_s3_path = f"s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}{yesterday}_final_result"
 
+# 파일 리스트
 files = [
     "data_aos_onepick_retarget.parquet",
     "data_aos_onepick_ua.parquet",
@@ -19,6 +22,8 @@ files = [
     "data_ios_retarget.parquet",
     "data_ios_ua.parquet",
 ]
+columns_to_keep = ["Attributed_Touch_Type","Attributed_Touch_Time","Install_Time","Event_Time","Event_Name","Partner","Media_Source","Channel","Keywords","Campaign","Adset","Ad","Ad_Type","Region","Country_Code","Carrier","Language","AppsFlyer_ID","Android_ID","Advertising_ID","IDFA","IDFV","Device_Category","Platform","OS_Version","App_Version","SDK_Version","Is_Retargeting","Retargeting_Conversion_Type","Is_Primary_Attribution","Attribution_Lookback","Reengagement_Window","Match_Type","User_Agent","Conversion_Type","Campaign_Type","Device_Model","Keyword_ID","Original_URL",]
+
 
 def normalize_column_names(df):
     new_columns = [col_name.strip().replace(" ", "_").replace("-", "_") for col_name in df.columns]
@@ -27,24 +32,26 @@ def normalize_column_names(df):
 AOS_MEDIA_SOURCE = ["appier_int", "adisonofferwall_int", "cashfriends_int", "greenp_int", "buzzad_int"]
 IOS_MEDIA_SOURCE = ["adisonofferwall_int", "cashfriends_int", "greenp_int", "buzzad_int"]
 
+# 카테고리별 결과 저장 리스트
 combined_normal, combined_prod, combined_itet, combined_ctit, combined_false, combined_onepick = ([] for _ in range(6))
 
 for file in files:
     try:
         print(f"🚀 파일 처리 시작: {file}")
-        s3_path = f"s3://{S3_BUCKET}/{S3_INPUT_PREFIX}{file}"
+        s3_path = f"s3a://{S3_BUCKET}/{S3_INPUT_PREFIX}{file}"
 
-        # 1단계: 스키마 자동 추론 없이 기본 파싱
         df = spark.read.option("mergeSchema", "false").parquet(s3_path)
-
-        # 2단계: 컬럼명 정규화
         df = normalize_column_names(df)
 
-        # 3단계: 전체 String 캐스팅
         for colname in df.columns:
             df = df.withColumn(colname, col(colname).cast("string"))
 
-        # 시간 차 계산
+        
+        # ✅ 드롭할 컬럼 제거
+        cols_to_drop = [c for c in df.columns if c not in columns_to_keep]
+        df = df.drop(*cols_to_drop)
+
+
         df = df.withColumn("Event_Time_ts", unix_timestamp("Event_Time"))
         df = df.withColumn("Install_Time_ts", unix_timestamp("Install_Time"))
         df = df.withColumn("Time_Diff", (col("Event_Time_ts") - col("Install_Time_ts")) / 3600)
@@ -87,18 +94,18 @@ for file in files:
         print(f"❌ 처리 중 에러 - {file}: {e}")
         traceback.print_exc()
 
-# ✅ 최종 저장
-output_s3_path = f"s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}{yesterday}_final_result"
+# 결과 병합 및 단일 파일로 저장
 all_dataframes = combined_normal + combined_prod + combined_itet + combined_ctit + combined_false + combined_onepick
 
 if all_dataframes:
     result_df = all_dataframes[0]
     for df in all_dataframes[1:]:
         result_df = result_df.unionByName(df)
-    result_df.write.mode("overwrite").option("header", True).csv(output_s3_path)
-    print("✅ 결과 저장 완료")
+    
+    # 단일 CSV로 저장
+    result_df.coalesce(1).write.option("header", True).mode("overwrite").csv(f"s3a://{output_s3_path}")
+    print("✅ 단일 CSV 저장 완료")
 else:
-    print("⚠️ 저장할 데이터가 없습니다.")
-    spark.createDataFrame([], schema="Event_Time timestamp").write.mode("overwrite").csv(output_s3_path)
+    print("⚠️ 저장할 데이터 없음")
 
 spark.stop()
