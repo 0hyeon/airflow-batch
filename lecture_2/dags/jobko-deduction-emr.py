@@ -8,7 +8,8 @@ import time
 from airflow.models import Variable
 
 # 날짜 설정
-yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+# yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+yesterday = "2025-04-15"
 S3_BUCKET = "fc-practice2"
 S3_INPUT_PREFIX = f"apps_flyer_jobko/date={yesterday}/"
 S3_OUTPUT_PREFIX = f"apps_flyer_jobko/deduction_results/"

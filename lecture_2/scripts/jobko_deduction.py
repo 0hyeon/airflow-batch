@@ -51,81 +51,89 @@ AOS_MEDIA_SOURCE = ["appier_int", "adisonofferwall_int", "cashfriends_int", "gre
 IOS_MEDIA_SOURCE = ["adisonofferwall_int", "cashfriends_int", "greenp_int", "buzzad_int"]
 
 combined_rows = []
-
 for file in files:
     try:
         print(f"🚀 처리중: {file}")
-        df = spark.read.parquet(f"s3a://{S3_BUCKET}/{S3_INPUT_PREFIX}{file}")
-        df = normalize_column_names(df)
-        for colname in df.columns:
-            df = df.withColumn(colname, trim(col(colname).cast("string")))
-        df = df.select(*[c for c in df.columns if c in columns_to_keep])
+        s3_path = f"s3a://{S3_BUCKET}/{S3_INPUT_PREFIX}{file}"
+        df = spark.read.option("mergeSchema", "true").parquet(s3_path)
+
+        # 컬럼 정규화
+        df = df.toDF(*[c.strip().replace(" ", "_").replace("-", "_") for c in df.columns])
+
+        for c in df.columns:
+            df = df.withColumn(c, trim(col(c).cast("string")))
 
         lower_name = file.lower()
         platform = "aos" if "aos" in lower_name else "ios"
         id_col = "Advertising_ID" if platform == "aos" else "IDFA"
         media_sources = AOS_MEDIA_SOURCE if platform == "aos" else IOS_MEDIA_SOURCE
 
-        # === 1. Retarget → 프로드 ===
+        # 1. PROD
         if "retarget" in lower_name:
-            df_re = df.filter(col("Retargeting_Conversion_Type") == "re-engagement")\
-                .withColumn("event_ts", unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS"))\
-                .withColumn("prev2", lag("event_ts", 2).over(Window.partitionBy(id_col).orderBy("event_ts")))\
-                .withColumn("delta2", col("event_ts") - col("prev2"))
-            df_prod = df_re.filter((col("delta2") <= 60) & col("Media_Source").isin(media_sources))\
-                .withColumn("Event_Name", map_event_udf("Event_Name"))\
-                .withColumn("구분", lit("프로드"))\
-                .select(*columns_to_keep, "구분")
+            window_spec = Window.partitionBy(id_col).orderBy(unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS"))
+            df_re = df.filter(col("Retargeting_Conversion_Type") == "re-engagement") \
+                      .withColumn("event_ts", unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS")) \
+                      .withColumn("prev2", lag("event_ts", 2).over(window_spec)) \
+                      .withColumn("delta2", col("event_ts") - col("prev2"))
+
+            df_prod = df_re.filter((col("delta2") <= 60) & col("Media_Source").isin(media_sources)) \
+                           .withColumn("구분", lit("\ud504\ub85c\ub4dc")) \
+                           .withColumn("Event_Name", map_event_udf("Event_Name"))
+                           
+            df_prod = df_prod.drop("prev2", "delta2", "event_ts")
             combined_rows.append(df_prod)
             df = df.join(df_prod.select("Event_Time", id_col), on=["Event_Time", id_col], how="left_anti")
 
-        # === 2. ITET ===
-        df = df.withColumn("install_ts", unix_timestamp("Install_Time", "yyyy-MM-dd HH:mm:ss.SSS"))\
-               .withColumn("event_ts", unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS"))\
-               .withColumn("itet_diff", (col("event_ts") - col("install_ts")) / 3600.0)
-
-        df_itet = df.filter(col("itet_diff") >= 24 * 1.05)\
-            .withColumn("Event_Name", map_event_udf("Event_Name"))\
-            .withColumn("구분", lit("ITET"))\
-            .select(*columns_to_keep, "구분")
-        combined_rows.append(df_itet)
-        df = df.filter(col("itet_diff") < 24 * 1.05)
-
-        # === 3. CTIT ===
-        if "Attributed_Touch_Time" in df.columns:
-            df = df.withColumn("touch_ts", unix_timestamp("Attributed_Touch_Time", "yyyy-MM-dd HH:mm:ss.SSS"))\
-                   .withColumn("ctit_diff", (col("install_ts") - col("touch_ts")) / 3600.0)
-            df_ctit = df.filter(col("ctit_diff") >= 24 * 1.05)\
-                .withColumn("Event_Name", map_event_udf("Event_Name"))\
-                .withColumn("구분", lit("CTIT"))\
-                .select(*columns_to_keep, "구분")
-            combined_rows.append(df_ctit)
-            df = df.filter(col("ctit_diff") < 24 * 1.05)
-
-        # === 4. FALSE ===
+        # 2. UA FALSE
         if "ua" in lower_name:
-            df_false = df.filter(col("Is_Primary_Attribution") == "false")\
-                .withColumn("Event_Name", map_event_udf("Event_Name"))\
-                .withColumn("구분", lit("FALSE"))\
-                .select(*columns_to_keep, "구분")
+            df_false = df.filter(col("Is_Primary_Attribution") == "false") \
+                         .withColumn("구분", lit("FALSE")) \
+                         .withColumn("Event_Name", map_event_udf("Event_Name"))
             combined_rows.append(df_false)
             df = df.filter(col("Is_Primary_Attribution") != "false")
 
-        # === 5. 정상 / 원픽 ===
-        df_normal = df.withColumn("Event_Name", map_event_udf("Event_Name"))\
-                      .withColumn("구분", lit("정상"))\
-                      .select(*columns_to_keep, "구분")
+        # 3. ITET
+        df = df.withColumn("event_ts", unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS")) \
+               .withColumn("install_ts", unix_timestamp("Install_Time", "yyyy-MM-dd HH:mm:ss.SSS")) \
+               .withColumn("itet_diff", (col("event_ts") - col("install_ts")) / 3600.0)
+
+        df_itet = df.filter(col("itet_diff") >= 24 * 1.05) \
+                    .withColumn("구분", lit("ITET")) \
+                    .withColumn("Event_Name", map_event_udf("Event_Name"))
+        combined_rows.append(df_itet)
+        df = df.filter(col("itet_diff") < 24 * 1.05)
+
+        # 4. CTIT
+        if "Attributed_Touch_Time" in df.columns:
+            df = df.withColumn("touch_ts", unix_timestamp("Attributed_Touch_Time", "yyyy-MM-dd HH:mm:ss.SSS")) \
+                   .withColumn("ctit_diff", (col("install_ts") - col("touch_ts")) / 3600.0)
+
+            df_ctit = df.filter(col("ctit_diff") >= 24 * 1.05) \
+                        .withColumn("구분", lit("CTIT")) \
+                        .withColumn("Event_Name", map_event_udf("Event_Name"))
+            combined_rows.append(df_ctit)
+            df = df.filter(col("ctit_diff") < 24 * 1.05)
+
+        # 5. 정상
+        df_normal = df.withColumn("구분", lit("정상")) \
+                      .withColumn("Event_Name", map_event_udf("Event_Name"))
         combined_rows.append(df_normal)
 
     except Exception as e:
-        print(f"❌ 오류 - {file}: {e}")
+        print(f"❌ 오류 발생 - {file}: {e}")
         traceback.print_exc()
 
-# 병합 및 저장
+# 저장
 if combined_rows:
     result_df = combined_rows[0]
     for df in combined_rows[1:]:
         result_df = result_df.unionByName(df)
+
+    # 🔧 여기서 중간 처리용 컬럼 제거 (drop은 존재하는 컬럼만 제거)
+    drop_cols = ["event_ts", "install_ts", "touch_ts", "prev2", "delta2", "itet_diff", "ctit_diff"]
+    result_df = result_df.drop(*[c for c in drop_cols if c in result_df.columns])
+
+    # ✅ 저장
     result_df.coalesce(1).write.option("header", True).mode("overwrite").csv(output_s3_path)
     print("✅ 저장 완료:", output_s3_path)
 else:
