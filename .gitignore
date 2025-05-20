@@ -7,5 +7,5 @@ lecture_1/deploy/model
 lecture_1/deploy/worker
 lecture_1/infra
 lecture_1/istio-1.15.0
-lecture_2/dags
+# lecture_2/dags
 jobko-crawaling-notairflow.py
