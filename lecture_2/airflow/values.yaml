@@ -3,8 +3,8 @@ appName: main
 webReplicas: 1
 
 airflow:
-  image: apache/airflow
-  imageTag: "2.3.2"
+  image: 0hyeon/airflow-custom
+  imageTag: '2.11.5'
   imagePullPolicy: Always
   port: 8080
 
@@ -12,12 +12,12 @@ service:
   port: 8080
 
 worker:
-  image: apache/airflow
-  imageTag: "2.3.2"
+  image: 0hyeon/airflow-custom
+  imageTag: '2.11.5'
   imagePullPolicy: IfNotPresent
 
 config:
-  executor: "KubernetesExecutor"
+  executor: 'KubernetesExecutor'
 
 postgresql:
   conn: postgresql://airflow:airflow@airflow-postgres:5432
