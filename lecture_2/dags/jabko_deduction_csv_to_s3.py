@@ -30,7 +30,7 @@ def upload_to_s3_with_hook(**context):
     print(f"📦 업로드 대상 날짜: {target_date}")
 
     s3_key = f'deduction-csv/date={target_date}/final_attachment.csv'
-    local_file_path = '/dags/data/appsflyer_csv/jobkorea/final_attachment.csv'
+    local_file_path = '/dags/data/final_attachment.csv'
 
     if not os.path.exists(local_file_path):
         raise FileNotFoundError(f"파일이 존재하지 않음: {local_file_path}")

@@ -10,11 +10,8 @@ import requests
 import os
 from datetime import datetime, timedelta
 
-# 기존경로
-# SAVE_DIR = "/opt/airflow/data/appsflyer_csv"
+SAVE_DIR = "/dags/data/appsflyer_csv"
 
-#쿠버네티스 nfs-server 경로
-SAVE_DIR = "/dags/data/appsflyer_csv/jobkorea"
 # Default DAG setting
 default_args = {
     'owner': 'airflow',

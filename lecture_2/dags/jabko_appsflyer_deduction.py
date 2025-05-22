@@ -64,8 +64,7 @@ def run_async_processing():
     import asyncio
     from datetime import timedelta
 
-    # BASE_PATH = "/opt/airflow/data/appsflyer_csv"
-    BASE_PATH = "/dags/data/appsflyer_csv/jobkorea"
+    BASE_PATH = "/dags/data/appsflyer_csv"
     FILES = [
         "aos_원픽.csv", "aos_원픽_2.csv", "aos_리타겟팅.csv", "aos_ua.csv",
         "ios_원픽.csv", "ios_원픽_2.csv", "ios_리타겟팅.csv", "ios_ua.csv"
@@ -294,7 +293,7 @@ def run_async_processing():
         async with aiofiles.open(temp_csv_file, "rb") as out_file:
             file_data = await out_file.read()
 
-        with open("/opt/airflow/data/final_attachment.csv", "wb") as f:
+        with open("/dags/data/final_attachment.csv", "wb") as f:
             f.write(file_data)
             
     asyncio.run(process_dataframes())
@@ -367,7 +366,7 @@ async def processProd(csv_data, osAdid, osMediaSource):
 def check_row_count(**context):
     fetch_row_count= int(context['dag_run'].conf.get('fetch_row_count'))
     print(f"전달받은 row 수: {fetch_row_count}")
-    df = pd.read_csv("/opt/airflow/data/final_attachment.csv")
+    df = pd.read_csv("/dags/data/final_attachment.csv")
     deduction_row_count = len(df)
     comp_row_count = fetch_row_count - deduction_row_count
     if comp_row_count != 0 :

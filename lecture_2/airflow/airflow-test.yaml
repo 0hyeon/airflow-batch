@@ -6,17 +6,17 @@ kind: ConfigMap
 metadata:
   name: airflow-config
 data:
-  AIRFLOW__CORE__DEFAULT_TIMEZONE: "Asia/Seoul"
-  AIRFLOW__CORE__DAGS_FOLDER: "/dags"
-  AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: "Asia/Seoul"
-  AIRFLOW__WEBSERVER__SECRET_KEY: "0hyeon"
-  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
-  AIRFLOW__LOGGING__BASE_LOG_FOLDER: "/logs"
-  AIRFLOW__LOGGING__DAG_PROCESSOR_MANAGER_LOG_LOCATION: "/logs/dag_processor_manager/dag_processor_manager.log"
-  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: "apache/airflow"
-  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: "2.3.2"
-  AIRFLOW__KUBERNETES__POD_TEMPLATE_FILE: "/airflow-pod.yaml"
-  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql://airflow:airflow@airflow-postgres:5432/airflow"
+  AIRFLOW__CORE__DEFAULT_TIMEZONE: 'Asia/Seoul'
+  AIRFLOW__CORE__DAGS_FOLDER: '/dags'
+  AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: 'Asia/Seoul'
+  AIRFLOW__WEBSERVER__SECRET_KEY: '0hyeon'
+  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: '30'
+  AIRFLOW__LOGGING__BASE_LOG_FOLDER: '/logs'
+  AIRFLOW__LOGGING__DAG_PROCESSOR_MANAGER_LOG_LOCATION: '/logs/dag_processor_manager/dag_processor_manager.log'
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: 'apache/airflow'
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: '2.3.2'
+  AIRFLOW__KUBERNETES__POD_TEMPLATE_FILE: '/airflow-pod.yaml'
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: 'postgresql://airflow:airflow@airflow-postgres:5432/airflow'
 ---
 # Source: airflow/templates/airflow-templates.yaml
 apiVersion: v1
@@ -237,7 +237,7 @@ spec:
             - containerPort: 8080
           env:
             - name: AIRFLOW__CORE__EXECUTOR
-              value: "KubernetesExecutor"
+              value: 'KubernetesExecutor'
           envFrom:
             - configMapRef:
                 name: airflow-config
@@ -253,7 +253,9 @@ spec:
               subPath: airflow-web-config-template.py
           command: ['/bin/bash', '-c']
           args:
-            - airflow webserver;
+            - |
+              pip install aiofiles && \
+              airflow webserver;
       restartPolicy: Always
       volumes:
         - name: airflow-pvc
@@ -291,7 +293,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "postgresql://airflow:airflow@airflow-postgres:5432/airflow"
+              value: 'postgresql://airflow:airflow@airflow-postgres:5432/airflow'
           command: ['/bin/bash', '-c']
           args:
             - until [ -n "`psql $AIRFLOW__DATABASE__SQL_ALCHEMY_CONN -l`" ]; do echo "Waiting"; sleep 10; done;
@@ -307,7 +309,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: AIRFLOW__CORE__EXECUTOR
-              value: "KubernetesExecutor"
+              value: 'KubernetesExecutor'
           envFrom:
             - configMapRef:
                 name: airflow-config
@@ -323,7 +325,10 @@ spec:
               subPath: airflow-pod.yaml
           command: ['/bin/bash', '-c']
           args:
-            - airflow scheduler;
+            - |
+              pip install aiofiles && \
+              airflow scheduler;
+
       restartPolicy: Always
       volumes:
         - name: airflow-pvc
