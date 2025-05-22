@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import time
 from airflow.models import Variable
 # from plugins import slack 
+import botocore.exceptions
 
 # ❗️버킷 경로 수정
 S3_BUCKET = "gyoung0-test"
@@ -196,18 +197,37 @@ def wait_for_spark_job(**kwargs):
 
     print(f"🔄 Spark 작업 {step_id} 실행 대기 중...")
 
-    while True:
-        response = client.describe_step(ClusterId=cluster_id, StepId=step_id)
-        state = response["Step"]["Status"]["State"]
+    retries = 0
+    max_retries = 5
 
-        if state == "COMPLETED":
-            print(f"✅ Spark 작업 완료!")
-            # 클러스터 종료
-            client.terminate_job_flows(JobFlowIds=[cluster_id])
-            print(f"클러스터 {cluster_id} 종료 요청 완료")
-            break
-        elif state in ["FAILED", "CANCELLED"]:
-            raise Exception(f"❌ Spark 작업 실패! 상태: {state}")
+    while True:
+        try:
+            response = client.describe_step(ClusterId=cluster_id, StepId=step_id)
+            state = response["Step"]["Status"]["State"]
+
+            if state == "COMPLETED":
+                print("✅ Spark 작업 완료!")
+                client.terminate_job_flows(JobFlowIds=[cluster_id])
+                print(f"🛑 클러스터 {cluster_id} 종료 요청 완료")
+                break
+            elif state in ["FAILED", "CANCELLED"]:
+                raise Exception(f"❌ Spark 작업 실패! 상태: {state}")
+            else:
+                print(f"⌛ 현재 상태: {state}, 30초 후 재확인")
+                time.sleep(30)
+
+        except botocore.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == 'ThrottlingException':
+                if retries < max_retries:
+                    sleep_time = 2 ** retries
+                    print(f"🚨 Throttling 발생. {sleep_time}초 후 재시도 ({retries + 1}/{max_retries})")
+                    time.sleep(sleep_time)
+                    retries += 1
+                    continue
+                else:
+                    raise Exception("❌ 최대 재시도 횟수 초과: ThrottlingException")
+            else:
+                raise
 
 
 wait_for_spark = PythonOperator(

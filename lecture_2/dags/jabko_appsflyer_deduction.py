@@ -64,7 +64,8 @@ def run_async_processing():
     import asyncio
     from datetime import timedelta
 
-    BASE_PATH = "/opt/airflow/data/appsflyer_csv"
+    # BASE_PATH = "/opt/airflow/data/appsflyer_csv"
+    BASE_PATH = "/dags/data/appsflyer_csv/jobkorea"
     FILES = [
         "aos_원픽.csv", "aos_원픽_2.csv", "aos_리타겟팅.csv", "aos_ua.csv",
         "ios_원픽.csv", "ios_원픽_2.csv", "ios_리타겟팅.csv", "ios_ua.csv"

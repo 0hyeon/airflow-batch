@@ -10,7 +10,11 @@ import requests
 import os
 from datetime import datetime, timedelta
 
-SAVE_DIR = "/opt/airflow/data/appsflyer_csv"
+# 기존경로
+# SAVE_DIR = "/opt/airflow/data/appsflyer_csv"
+
+#쿠버네티스 nfs-server 경로
+SAVE_DIR = "/dags/data/appsflyer_csv/jobkorea"
 # Default DAG setting
 default_args = {
     'owner': 'airflow',
@@ -89,7 +93,17 @@ def count_total_rows(**context):
     # XCom으로 다음 대그에 total_row를 전달해줌
     context['ti'].xcom_push(key='total_csv_rows', value=total_rows)
     
-
+# 매일 실행 전 폴더 비우기
+def cleanup_appsflyer_dir():
+    if os.path.exists(SAVE_DIR):
+        for filename in os.listdir(SAVE_DIR):
+            file_path = os.path.join(SAVE_DIR, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        print(f"🧹 폴더 정리 완료: {SAVE_DIR}")
+    else:
+        os.makedirs(SAVE_DIR, exist_ok=True)
+        print(f"📁 폴더 생성됨: {SAVE_DIR}")
 
 
 
@@ -103,7 +117,13 @@ def count_total_rows(**context):
 #     dag=dag,
 # )
 
-
+# 실행전 SAVE_DIR 폴더내 파일 비우기 
+cleanup_task = PythonOperator(
+    task_id='cleanup_appsflyer_dir',
+    python_callable=cleanup_appsflyer_dir,
+    dag=dag,
+)
+# api호출후 파일저장
 fetch_csv_task = PythonOperator(
     task_id='fetch_appsflyer_csv_files',
     provide_context=True,
@@ -111,7 +131,7 @@ fetch_csv_task = PythonOperator(
     dag=dag,
 )
 
-
+# 호출한 파일 로울 총합을 다음 task전달 
 count_rows_task = PythonOperator(
     task_id='count_total_csv_rows',
     python_callable=count_total_rows,
@@ -119,6 +139,7 @@ count_rows_task = PythonOperator(
     dag=dag,
 )
 
+# 디덕션 트리거 
 trigger_processing = TriggerDagRunOperator(
     task_id='trigger_process_dag',
     trigger_dag_id='jabko_process_appsflyer_data',  # 이 DAG ID로 호출
@@ -128,6 +149,9 @@ trigger_processing = TriggerDagRunOperator(
     dag=dag,
 )
 
+
+# 기존플로우
 # test_fail >> fetch_csv_task >> trigger_processing
 
-fetch_csv_task >> count_rows_task >> trigger_processing
+#실행전 폴더비우기 추가
+cleanup_task >> fetch_csv_task >> count_rows_task >> trigger_processing
