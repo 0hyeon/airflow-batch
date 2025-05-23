@@ -3,6 +3,10 @@
 
 # docker push 0hyeon/airflow-custom:2.11.7
 # 1️⃣ Airflow 기본 이미지 기반
+
+# kubectl rollout restart statefulset airflow-0hyeon-scheduler
+# kubectl rollout restart statefulset airflow-0hyeon-web
+
 FROM apache/airflow:2.10.0-python3.10
 
 USER root

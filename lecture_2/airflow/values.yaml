@@ -4,7 +4,7 @@ webReplicas: 1
 
 airflow:
   image: 0hyeon/airflow-custom
-  imageTag: '2.11.5'
+  imageTag: '2.11.7'
   imagePullPolicy: Always
   port: 8080
 
@@ -13,7 +13,7 @@ service:
 
 worker:
   image: 0hyeon/airflow-custom
-  imageTag: '2.11.5'
+  imageTag: '2.11.7'
   imagePullPolicy: IfNotPresent
 
 config:
