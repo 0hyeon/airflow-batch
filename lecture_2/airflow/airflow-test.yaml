@@ -13,8 +13,8 @@ data:
   AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: '30'
   AIRFLOW__LOGGING__BASE_LOG_FOLDER: '/logs'
   AIRFLOW__LOGGING__DAG_PROCESSOR_MANAGER_LOG_LOCATION: '/logs/dag_processor_manager/dag_processor_manager.log'
-  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: 'apache/airflow'
-  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: '2.3.2'
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: '0hyeon/airflow-custom'
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: '2.11.6'
   AIRFLOW__KUBERNETES__POD_TEMPLATE_FILE: '/airflow-pod.yaml'
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: 'postgresql://airflow:airflow@airflow-postgres:5432/airflow'
 ---
@@ -41,8 +41,8 @@ data:
           env:
             - name: AIRFLOW__CORE__EXECUTOR
               value: KubernetesExecutor
-          image: apache/airflow:2.3.2
-          imagePullPolicy: IfNotPresent
+          image: 0hyeon/airflow-custom:2.11.7
+          imagePullPolicy: Always
           volumeMounts:
             - name: airflow-pvc
               mountPath: /dags
@@ -231,7 +231,7 @@ spec:
     spec:
       containers:
         - name: airflow-web
-          image: apache/airflow:2.3.2
+          image: 0hyeon/airflow-custom:2.11.7
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -253,9 +253,7 @@ spec:
               subPath: airflow-web-config-template.py
           command: ['/bin/bash', '-c']
           args:
-            - |
-              pip install aiofiles && \
-              airflow webserver;
+            - airflow webserver
       restartPolicy: Always
       volumes:
         - name: airflow-pvc
@@ -289,7 +287,7 @@ spec:
     spec:
       initContainers:
         - name: init-db
-          image: apache/airflow:2.3.2
+          image: 0hyeon/airflow-custom:2.11.7
           imagePullPolicy: Always
           env:
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
@@ -305,7 +303,7 @@ spec:
               subPath: airflow
       containers:
         - name: airflow-scheduler
-          image: apache/airflow:2.3.2
+          image: 0hyeon/airflow-custom:2.11.7
           imagePullPolicy: Always
           env:
             - name: AIRFLOW__CORE__EXECUTOR
@@ -325,9 +323,7 @@ spec:
               subPath: airflow-pod.yaml
           command: ['/bin/bash', '-c']
           args:
-            - |
-              pip install aiofiles && \
-              airflow scheduler;
+            - airflow scheduler
 
       restartPolicy: Always
       volumes:
