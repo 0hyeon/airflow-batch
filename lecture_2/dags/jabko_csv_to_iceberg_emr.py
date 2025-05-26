@@ -82,7 +82,7 @@ def create_emr_cluster(**kwargs):
 create_emr = PythonOperator(
     task_id="create_emr",
     python_callable=create_emr_cluster,
-    provide_context=True,
+    # provide_context=True,
     dag=dag,
 )
 
@@ -113,7 +113,7 @@ def wait_for_emr_cluster(**kwargs):
 wait_for_cluster = PythonSensor(
     task_id="wait_for_cluster",
     python_callable=wait_for_emr_cluster,
-    provide_context=True,
+    # provide_context=True,
     mode='reschedule',
     poke_interval=60,          # 1분마다 체크
     timeout=60 * 60 * 2,       # 최대 1시간 기다림
@@ -134,7 +134,7 @@ def check_s3_file_with_hook(**kwargs):
 check_s3_files = PythonOperator(
     task_id="check_s3_files",
     python_callable=check_s3_file_with_hook,
-    provide_context=True,
+    # provide_context=True,
     dag=dag,
 )
 # ✅ 4. EMR에서 PySpark 작업 실행
@@ -146,7 +146,7 @@ def submit_spark_job(**kwargs):
         region_name=Variable.get("AWS_DEFAULT_REGION"),
     )
     target_date = kwargs["dag_run"].conf.get("target_date")
-    print(f"target_date: {target_date}")
+    print(f" target_date: {target_date}")
     client = session.client("emr")
     cluster_id = kwargs["ti"].xcom_pull(task_ids="create_emr", key="emr_cluster_id")
 
@@ -183,7 +183,6 @@ def submit_spark_job(**kwargs):
 run_spark_job = PythonOperator(
     task_id="run_spark_job",
     python_callable=submit_spark_job,
-    provide_context=True,
     dag=dag,
 )
 
@@ -215,7 +214,6 @@ def wait_for_spark_job(**kwargs):
 wait_for_spark = PythonSensor(
     task_id="wait_for_spark",
     python_callable=wait_for_spark_job,
-    provide_context=True,
     mode='reschedule',
     poke_interval=60,          # 1분마다 체크
     timeout=60 * 60 * 1,       # 최대 1시간 기다림
