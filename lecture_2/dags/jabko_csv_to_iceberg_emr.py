@@ -6,8 +6,10 @@ from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from datetime import datetime, timedelta
 import time
 from airflow.models import Variable
+from airflow.sensors.python import PythonSensor
 # from plugins import slack 
 import botocore.exceptions
+
 
 # ❗️버킷 경로 수정
 S3_BUCKET = "gyoung0-test"
@@ -84,6 +86,7 @@ create_emr = PythonOperator(
     dag=dag,
 )
 
+
 # ✅ 2. 클러스터가 `WAITING` 상태가 될 때까지 대기
 def wait_for_emr_cluster(**kwargs):
     import boto3
@@ -95,24 +98,25 @@ def wait_for_emr_cluster(**kwargs):
     client = session.client("emr")
     cluster_id = kwargs["ti"].xcom_pull(task_ids="create_emr", key="emr_cluster_id")
 
-    print(f"🔄 EMR 클러스터 {cluster_id} 활성화 대기 중...")
+    response = client.describe_cluster(ClusterId=cluster_id)
+    state = response["Cluster"]["Status"]["State"]
+    print(f"⌛ 현재 클러스터 상태: {state}")
 
-    while True:
-        response = client.describe_cluster(ClusterId=cluster_id)
-        state = response["Cluster"]["Status"]["State"]
+    if state == "WAITING":
+        return True
+    elif state in ["TERMINATING", "TERMINATED", "TERMINATED_WITH_ERRORS"]:
+        raise Exception(f"❌ 클러스터 {cluster_id} 비정상 종료됨! 상태: {state}")
+    else:
+        return False
 
-        if state == "WAITING":
-            print(f"✅ EMR 클러스터 {cluster_id} 활성화 완료!")
-            break
-        elif state in ["TERMINATING", "TERMINATED", "TERMINATED_WITH_ERRORS"]:
-            raise Exception(f"❌ 클러스터 {cluster_id}가 비정상 종료됨! 상태: {state}")
 
-        time.sleep(30) # ✅ 30초 간격으로 상태 확인
-
-wait_for_cluster = PythonOperator(
+wait_for_cluster = PythonSensor(
     task_id="wait_for_cluster",
     python_callable=wait_for_emr_cluster,
     provide_context=True,
+    mode='reschedule',
+    poke_interval=60,          # 1분마다 체크
+    timeout=60 * 60 * 2,       # 최대 1시간 기다림
     dag=dag,
 )
 
@@ -142,7 +146,7 @@ def submit_spark_job(**kwargs):
         region_name=Variable.get("AWS_DEFAULT_REGION"),
     )
     target_date = kwargs["dag_run"].conf.get("target_date")
-    print(f"⏰⏰⏰⏰⏰⏰⏰⏰ target_date: {target_date}")
+    print(f"target_date: {target_date}")
     client = session.client("emr")
     cluster_id = kwargs["ti"].xcom_pull(task_ids="create_emr", key="emr_cluster_id")
 
@@ -195,45 +199,27 @@ def wait_for_spark_job(**kwargs):
     cluster_id = kwargs["ti"].xcom_pull(task_ids="create_emr", key="emr_cluster_id")
     step_id = kwargs["ti"].xcom_pull(task_ids="run_spark_job", key="spark_step_id")
 
-    print(f"🔄 Spark 작업 {step_id} 실행 대기 중...")
+    response = client.describe_step(ClusterId=cluster_id, StepId=step_id)
+    state = response["Step"]["Status"]["State"]
+    print(f"⌛ 현재 Spark Step 상태: {state}")
 
-    retries = 0
-    max_retries = 5
+    if state == "COMPLETED":
+        client.terminate_job_flows(JobFlowIds=[cluster_id])
+        print(f"🛑 클러스터 {cluster_id} 종료 요청 완료")
+        return True
+    elif state in ["FAILED", "CANCELLED"]:
+        raise Exception(f"❌ Spark 작업 실패 상태: {state}")
+    else:
+        return False
 
-    while True:
-        try:
-            response = client.describe_step(ClusterId=cluster_id, StepId=step_id)
-            state = response["Step"]["Status"]["State"]
-
-            if state == "COMPLETED":
-                print("✅ Spark 작업 완료!")
-                client.terminate_job_flows(JobFlowIds=[cluster_id])
-                print(f"🛑 클러스터 {cluster_id} 종료 요청 완료")
-                break
-            elif state in ["FAILED", "CANCELLED"]:
-                raise Exception(f"❌ Spark 작업 실패! 상태: {state}")
-            else:
-                print(f"⌛ 현재 상태: {state}, 30초 후 재확인")
-                time.sleep(30)
-
-        except botocore.exceptions.ClientError as e:
-            if e.response['Error']['Code'] == 'ThrottlingException':
-                if retries < max_retries:
-                    sleep_time = 2 ** retries
-                    print(f"🚨 Throttling 발생. {sleep_time}초 후 재시도 ({retries + 1}/{max_retries})")
-                    time.sleep(sleep_time)
-                    retries += 1
-                    continue
-                else:
-                    raise Exception("❌ 최대 재시도 횟수 초과: ThrottlingException")
-            else:
-                raise
-
-
-wait_for_spark = PythonOperator(
+wait_for_spark = PythonSensor(
     task_id="wait_for_spark",
     python_callable=wait_for_spark_job,
     provide_context=True,
+    mode='reschedule',
+    poke_interval=60,          # 1분마다 체크
+    timeout=60 * 60 * 1,       # 최대 1시간 기다림
+
     dag=dag,
 )
 
