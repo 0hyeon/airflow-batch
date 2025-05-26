@@ -23,7 +23,7 @@ default_args = {
 dag = DAG(
     dag_id='jabko_fetch_appsflyer_csv_daily',
     default_args=default_args,
-    schedule_interval="0 21 * * *",  # UTC 기준 21시 → KST 오전 6시
+    schedule_interval="0 6 * * *",
     catchup=False,
     tags=['appsflyer']
 )
@@ -32,7 +32,9 @@ dag = DAG(
 def fetch_appsflyer_csv(ds, **kwargs):
     execution_date = datetime.strptime(ds, "%Y-%m-%d")
     print(execution_date)
-    target_date = (execution_date + timedelta(days=1)).strftime("%Y-%m-%d")
+    target_date = (execution_date - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    
     print(target_date)
     TOKEN = Variable.get("JOBKOREA_TOKEN")
 
