@@ -31,11 +31,11 @@ dag = DAG(
 # API 호출
 def fetch_appsflyer_csv(ds, **kwargs):
     execution_date = datetime.strptime(ds, "%Y-%m-%d")
-    print(execution_date)
-    target_date = (execution_date - timedelta(days=1)).strftime("%Y-%m-%d")
+    print("execution_date : ",execution_date)
     
+    target_date = (execution_date + timedelta(days=2)).strftime("%Y-%m-%d")
+    print("target_date : ",target_date)
     
-    print(target_date)
     TOKEN = Variable.get("JOBKOREA_TOKEN")
 
     HEADERS = {
