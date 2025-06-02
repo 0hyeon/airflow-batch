@@ -38,7 +38,7 @@ def run_async_processing():
     import asyncio
     from datetime import timedelta
 
-    BASE_PATH = "/dags/data/albamon_appsflyer_csv"
+    BASE_PATH = "/dags/data/appsflyer_albamon_csv"
     FILES = [
         "aos_리타겟팅.csv",
         "aos_ua.csv",
