@@ -25,7 +25,7 @@ dag = DAG(
     default_args=default_args,
     schedule_interval="0 6 * * *",
     catchup=False,
-    tags=['appsflyer']
+    tags=['appsflyer','jbko']
 )
 
 # API 호출
@@ -33,7 +33,7 @@ def fetch_appsflyer_csv(ds, **kwargs):
     execution_date = datetime.strptime(ds, "%Y-%m-%d")
     print("execution_date : ",execution_date)
     
-    target_date = (execution_date + timedelta(days=2)).strftime("%Y-%m-%d")
+    target_date = (execution_date + timedelta(days=1)).strftime("%Y-%m-%d")
     print("target_date : ",target_date)
     
     TOKEN = Variable.get("JOBKOREA_TOKEN")
