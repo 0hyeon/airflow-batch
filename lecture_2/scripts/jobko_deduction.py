@@ -13,42 +13,105 @@ S3_OUTPUT_PREFIX = f"apps_flyer_jobko/deduction_results/{yesterday}/"
 output_s3_path = f"s3a://{S3_BUCKET}/{S3_OUTPUT_PREFIX}"
 
 files = [
-    "data_aos_onepick_retarget.parquet", "data_aos_onepick_ua.parquet",
-    "data_aos_retarget.parquet", "data_aos_ua.parquet",
-    "data_ios_onepick_retarget.parquet", "data_ios_onepick_ua.parquet",
-    "data_ios_retarget.parquet", "data_ios_ua.parquet"
+    "data_aos_onepick_retarget.parquet",
+    "data_aos_onepick_ua.parquet",
+    "data_aos_retarget.parquet",
+    "data_aos_ua.parquet",
+    "data_ios_onepick_retarget.parquet",
+    "data_ios_onepick_ua.parquet",
+    "data_ios_retarget.parquet",
+    "data_ios_ua.parquet",
 ]
 
 columns_to_keep = [
-    "Attributed_Touch_Type","Attributed_Touch_Time","Install_Time","Event_Time","Event_Name","Partner",
-    "Media_Source","Channel","Keywords","Campaign","Adset","Ad","Ad_Type","Region","Country_Code",
-    "Carrier","Language","AppsFlyer_ID","Android_ID","Advertising_ID","IDFA","IDFV","Device_Category",
-    "Platform","OS_Version","App_Version","SDK_Version","Is_Retargeting","Retargeting_Conversion_Type",
-    "Is_Primary_Attribution","Attribution_Lookback","Reengagement_Window","Match_Type","User_Agent",
-    "Conversion_Type","Campaign_Type","Device_Model","Keyword_ID","Original_URL"
+    "Attributed_Touch_Type",
+    "Attributed_Touch_Time",
+    "Install_Time",
+    "Event_Time",
+    "Event_Name",
+    "Partner",
+    "Media_Source",
+    "Channel",
+    "Keywords",
+    "Campaign",
+    "Adset",
+    "Ad",
+    "Ad_Type",
+    "Region",
+    "Country_Code",
+    "Carrier",
+    "Language",
+    "AppsFlyer_ID",
+    "Android_ID",
+    "Advertising_ID",
+    "IDFA",
+    "IDFV",
+    "Device_Category",
+    "Platform",
+    "OS_Version",
+    "App_Version",
+    "SDK_Version",
+    "Is_Retargeting",
+    "Retargeting_Conversion_Type",
+    "Is_Primary_Attribution",
+    "Attribution_Lookback",
+    "Reengagement_Window",
+    "Match_Type",
+    "User_Agent",
+    "Conversion_Type",
+    "Campaign_Type",
+    "Device_Model",
+    "Keyword_ID",
+    "Original_URL",
 ]
 
 event_transfer = {
-    "1st_update_complete": "7 이력서기본업데이트", "business_signup_complete": "4 기업회원가입",
-    "job_apply_complete_homepage": "3 홈페이지지원", "job_apply_complete_mobile": "2 즉시지원",
-    "minikit_complete": "9 MICT", "re_update_complete": "8 이력서추가업데이트",
-    "resume_complete_1st": "5 이력서최초등록", "resume_complete_re": "6 이력서추가등록",
-    "signup_all": "1 회원가입", "jobposting_complete": "90 채용공고등록",
-    "1pick_direct_apply": "93 원픽직접지원", "1pick_offer_apply": "92 원픽제안지원",
-    "1pick_view_jobposting": "94 원픽공고뷰", "nhis_resistration_complete": "91 건강보험_등록완료",
-    "1pick_start": "95 원픽하기", "event_2411_tvc_apply": "96 TVC응모완료",
-    "high_view_jobposting": "하이테크_공고조회", "high_scrap_notice": "하이테크_공고스크랩",
-    "high_direct_apply": "하이테크_즉시지원", "high_homepage_apply": "하이테크_홈페이지지원",
+    "1st_update_complete": "7 이력서기본업데이트",
+    "business_signup_complete": "4 기업회원가입",
+    "job_apply_complete_homepage": "3 홈페이지지원",
+    "job_apply_complete_mobile": "2 즉시지원",
+    "minikit_complete": "9 MICT",
+    "re_update_complete": "8 이력서추가업데이트",
+    "resume_complete_1st": "5 이력서최초등록",
+    "resume_complete_re": "6 이력서추가등록",
+    "signup_all": "1 회원가입",
+    "jobposting_complete": "90 채용공고등록",
+    "1pick_direct_apply": "93 원픽직접지원",
+    "1pick_offer_apply": "92 원픽제안지원",
+    "1pick_view_jobposting": "94 원픽공고뷰",
+    "nhis_resistration_complete": "91 건강보험_등록완료",
+    "1pick_start": "95 원픽하기",
+    "event_2411_tvc_apply": "96 TVC응모완료",
+    "high_view_jobposting": "하이테크_공고조회",
+    "high_scrap_notice": "하이테크_공고스크랩",
+    "high_direct_apply": "하이테크_즉시지원",
+    "high_homepage_apply": "하이테크_홈페이지지원",
     "careercheck_assess_complete": "커첵_참견하기",
+    "contentslab_view": "컨텐츠랩뷰",
 }
 map_event_udf = udf(lambda x: event_transfer.get(x, x), StringType())
 
+
 def normalize_column_names(df):
-    new_columns = [col_name.strip().replace(" ", "_").replace("-", "_") for col_name in df.columns]
+    new_columns = [
+        col_name.strip().replace(" ", "_").replace("-", "_") for col_name in df.columns
+    ]
     return df.toDF(*new_columns)
 
-AOS_MEDIA_SOURCE = ["appier_int", "adisonofferwall_int", "cashfriends_int", "greenp_int", "buzzad_int"]
-IOS_MEDIA_SOURCE = ["adisonofferwall_int", "cashfriends_int", "greenp_int", "buzzad_int"]
+
+AOS_MEDIA_SOURCE = [
+    "appier_int",
+    "adisonofferwall_int",
+    "cashfriends_int",
+    "greenp_int",
+    "buzzad_int",
+]
+IOS_MEDIA_SOURCE = [
+    "adisonofferwall_int",
+    "cashfriends_int",
+    "greenp_int",
+    "buzzad_int",
+]
 
 combined_rows = []
 
@@ -68,53 +131,86 @@ for file in files:
 
         # === 1. Retarget → 프로드 ===
         if "retarget" in lower_name:
-            df_re = df.filter(col("Retargeting_Conversion_Type") == "re-engagement")\
-                .withColumn("event_ts", unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS"))\
-                .withColumn("prev2", lag("event_ts", 2).over(Window.partitionBy(id_col).orderBy("event_ts")))\
+            df_re = (
+                df.filter(col("Retargeting_Conversion_Type") == "re-engagement")
+                .withColumn(
+                    "event_ts", unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS")
+                )
+                .withColumn(
+                    "prev2",
+                    lag("event_ts", 2).over(
+                        Window.partitionBy(id_col).orderBy("event_ts")
+                    ),
+                )
                 .withColumn("delta2", col("event_ts") - col("prev2"))
-            df_prod = df_re.filter((col("delta2") <= 60) & col("Media_Source").isin(media_sources))\
-                .withColumn("Event_Name", map_event_udf("Event_Name"))\
-                .withColumn("구분", lit("프로드"))\
+            )
+            df_prod = (
+                df_re.filter(
+                    (col("delta2") <= 60) & col("Media_Source").isin(media_sources)
+                )
+                .withColumn("Event_Name", map_event_udf("Event_Name"))
+                .withColumn("구분", lit("프로드"))
                 .select(*columns_to_keep, "구분")
+            )
             combined_rows.append(df_prod)
-            df = df.join(df_prod.select("Event_Time", id_col), on=["Event_Time", id_col], how="left_anti")
+            df = df.join(
+                df_prod.select("Event_Time", id_col),
+                on=["Event_Time", id_col],
+                how="left_anti",
+            )
 
         # === 2. ITET ===
-        df = df.withColumn("install_ts", unix_timestamp("Install_Time", "yyyy-MM-dd HH:mm:ss.SSS"))\
-               .withColumn("event_ts", unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS"))\
-               .withColumn("itet_diff", (col("event_ts") - col("install_ts")) / 3600.0)
+        df = (
+            df.withColumn(
+                "install_ts", unix_timestamp("Install_Time", "yyyy-MM-dd HH:mm:ss.SSS")
+            )
+            .withColumn(
+                "event_ts", unix_timestamp("Event_Time", "yyyy-MM-dd HH:mm:ss.SSS")
+            )
+            .withColumn("itet_diff", (col("event_ts") - col("install_ts")) / 3600.0)
+        )
 
-        df_itet = df.filter(col("itet_diff") >= 24 * 1.05)\
-            .withColumn("Event_Name", map_event_udf("Event_Name"))\
-            .withColumn("구분", lit("ITET"))\
+        df_itet = (
+            df.filter(col("itet_diff") >= 24 * 1.05)
+            .withColumn("Event_Name", map_event_udf("Event_Name"))
+            .withColumn("구분", lit("ITET"))
             .select(*columns_to_keep, "구분")
+        )
         combined_rows.append(df_itet)
         df = df.filter(col("itet_diff") < 24 * 1.05)
 
         # === 3. CTIT ===
         if "Attributed_Touch_Time" in df.columns:
-            df = df.withColumn("touch_ts", unix_timestamp("Attributed_Touch_Time", "yyyy-MM-dd HH:mm:ss.SSS"))\
-                   .withColumn("ctit_diff", (col("install_ts") - col("touch_ts")) / 3600.0)
-            df_ctit = df.filter(col("ctit_diff") >= 24 * 1.05)\
-                .withColumn("Event_Name", map_event_udf("Event_Name"))\
-                .withColumn("구분", lit("CTIT"))\
+            df = df.withColumn(
+                "touch_ts",
+                unix_timestamp("Attributed_Touch_Time", "yyyy-MM-dd HH:mm:ss.SSS"),
+            ).withColumn("ctit_diff", (col("install_ts") - col("touch_ts")) / 3600.0)
+            df_ctit = (
+                df.filter(col("ctit_diff") >= 24 * 1.05)
+                .withColumn("Event_Name", map_event_udf("Event_Name"))
+                .withColumn("구분", lit("CTIT"))
                 .select(*columns_to_keep, "구분")
+            )
             combined_rows.append(df_ctit)
             df = df.filter(col("ctit_diff") < 24 * 1.05)
 
         # === 4. FALSE ===
         if "ua" in lower_name:
-            df_false = df.filter(col("Is_Primary_Attribution") == "false")\
-                .withColumn("Event_Name", map_event_udf("Event_Name"))\
-                .withColumn("구분", lit("FALSE"))\
+            df_false = (
+                df.filter(col("Is_Primary_Attribution") == "false")
+                .withColumn("Event_Name", map_event_udf("Event_Name"))
+                .withColumn("구분", lit("FALSE"))
                 .select(*columns_to_keep, "구분")
+            )
             combined_rows.append(df_false)
             df = df.filter(col("Is_Primary_Attribution") != "false")
 
         # === 5. 정상 / 원픽 ===
-        df_normal = df.withColumn("Event_Name", map_event_udf("Event_Name"))\
-                      .withColumn("구분", lit("정상"))\
-                      .select(*columns_to_keep, "구분")
+        df_normal = (
+            df.withColumn("Event_Name", map_event_udf("Event_Name"))
+            .withColumn("구분", lit("정상"))
+            .select(*columns_to_keep, "구분")
+        )
         combined_rows.append(df_normal)
 
     except Exception as e:
@@ -126,7 +222,9 @@ if combined_rows:
     result_df = combined_rows[0]
     for df in combined_rows[1:]:
         result_df = result_df.unionByName(df)
-    result_df.coalesce(1).write.option("header", True).mode("overwrite").csv(output_s3_path)
+    result_df.coalesce(1).write.option("header", True).mode("overwrite").csv(
+        output_s3_path
+    )
     print("✅ 저장 완료:", output_s3_path)
 else:
     print("⚠️ 저장할 데이터 없음")
