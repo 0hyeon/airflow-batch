@@ -2,10 +2,8 @@ from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
-
-# from plugins import slack
 import pandas as pd
-
+import pendulum # 1. pendulum import 추가
 
 import requests
 import os
@@ -21,23 +19,22 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
     # 'on_failure_callback': slack.on_failure_callback,  # 🚨🚨📢Slack 알림 추가
 }
+
 dag = DAG(
     dag_id="jabko_fetch_appsflyer_csv_daily",
     default_args=default_args,
-    schedule_interval="0 6 * * *",
+    schedule_interval="0 6 * * *", # KST 오전 6시는 UTC 21
     catchup=False,
     tags=["appsflyer", "jbko"],
 )
 
-
 # API 호출
-def fetch_appsflyer_csv(ds, **kwargs):
-    execution_date = datetime.strptime(ds, "%Y-%m-%d")
-    target_date = (execution_date + timedelta(days=1)).strftime("%Y-%m-%d")
-
+def fetch_appsflyer_csv(**kwargs):
+    # pendulum을 사용해 현재 서울 시간 기준 어제 날짜를 계산
+    target_date = pendulum.now('Asia/Seoul').subtract(days=1).strftime("%Y-%m-%d")
+    print(f"✅ API 요청 대상 날짜: {target_date}")
 
     TOKEN = Variable.get("JOBKOREA_TOKEN")
-
     HEADERS = {
         "accept": "text/csv",
         "authorization": f"Bearer {TOKEN}",
@@ -66,13 +63,12 @@ def fetch_appsflyer_csv(ds, **kwargs):
             print(f"✅ 저장 완료 → {save_path}")
         else:
             print(f"❌ 실패: {name} → {response.status_code}")
-        # target date를 XCom으로 전달
-        kwargs["ti"].xcom_push(key="target_date", value=target_date)
+    # target date를 XCom으로 전달
+    kwargs["ti"].xcom_push(key="target_date", value=target_date)
 
 
 def count_total_rows(**context):
     total_rows = 0
-
     for filename in os.listdir(SAVE_DIR):
         if filename.endswith(".csv"):
             file_path = os.path.join(SAVE_DIR, filename)
@@ -81,7 +77,6 @@ def count_total_rows(**context):
             total_rows += row_count
             print(f"{filename}: {row_count} rows")
     print(f"총 로우 합 {total_rows}")
-
     # XCom으로 다음 대그에 total_row를 전달해줌
     context["ti"].xcom_push(key="total_csv_rows", value=total_rows)
 
@@ -99,16 +94,6 @@ def cleanup_appsflyer_dir():
         print(f"📁 폴더 생성됨: {SAVE_DIR}")
 
 
-# def fail_task():
-#     raise ValueError("의도적인 에러 발생 테스트")
-
-# 슬랙 메세지 실패 알림이 가는지 확인하기 위한 태스크
-# test_fail = PythonOperator(
-#     task_id='test_fail',
-#     python_callable=fail_task,
-#     dag=dag,
-# )
-
 # 실행전 SAVE_DIR 폴더내 파일 비우기
 cleanup_task = PythonOperator(
     task_id="cleanup_appsflyer_dir",
@@ -118,19 +103,15 @@ cleanup_task = PythonOperator(
 # api호출후 파일저장
 fetch_csv_task = PythonOperator(
     task_id="fetch_appsflyer_csv_files",
-    provide_context=True,
-    python_callable=fetch_appsflyer_csv,
+    python_callable=fetch_appsflyer_csv, # Airflow 2+에서는 provide_context=True 불필요
     dag=dag,
 )
-
 # 호출한 파일 로울 총합을 다음 task전달
 count_rows_task = PythonOperator(
     task_id="count_total_csv_rows",
     python_callable=count_total_rows,
-    provide_context=True,
     dag=dag,
 )
-
 # 디덕션 트리거
 trigger_processing = TriggerDagRunOperator(
     task_id="trigger_process_dag",
@@ -141,7 +122,6 @@ trigger_processing = TriggerDagRunOperator(
     },  # XCom으로 다음 대그에 값 전달
     dag=dag,
 )
-
 
 # 기존플로우
 # test_fail >> fetch_csv_task >> trigger_processing

@@ -15,7 +15,7 @@ default_args = {
 
 # DAG setting
 dag = DAG(
-    dag_id='ssg_all_daily_txt_download', # dag_id를 더 명확하게 변경
+    dag_id='ssg_all_daily_txt_download',
     default_args=default_args,
     schedule_interval='30 5 * * *',
     catchup=False,
