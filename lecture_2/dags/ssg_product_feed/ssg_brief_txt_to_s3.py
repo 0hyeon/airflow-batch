@@ -14,8 +14,8 @@ default_args = {
 
 BASE_LOCAL_PATH = '/opt/airflow/data/ssg_txt'
 FILES_TO_UPLOAD = {
-    'ssg_brief': 'ssg_brief_full.txt',
-    'e_brief': 'e_brief_full.txt'
+    'ssg_brief': 'ssg_brief_full.csv',
+    'e_brief': 'e_brief_full.csv'
 }
 
 dag = DAG(

@@ -4,7 +4,7 @@ from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from datetime import datetime, timedelta
 import requests
 import os
-
+import csv
 default_args = {
     'owner': 'airflow',
     'start_date': datetime(2025, 6, 16),
@@ -36,8 +36,7 @@ def download_and_save_single_file(name: str, url: str):
     """
     folder_path = BASE_SAVE_DIR
     os.makedirs(folder_path, exist_ok=True)
-    # 저장될 파일 이름을 더 명확하게 변경 (예: ssg_all_full.txt)
-    save_path = os.path.join(folder_path, f"{name}_full.txt")
+    save_path = os.path.join(folder_path, f"{name}_full.csv")
 
     print(f"Start downloading from {url} to {save_path}")
     
@@ -49,12 +48,14 @@ def download_and_save_single_file(name: str, url: str):
 
         # 결과 파일을 쓰기 모드('w')로 한 번만 엽니다.
         with open(save_path, "w", encoding="utf-8-sig") as f:
+            csv_writer = csv.writer(f, delimiter=',')
             line_iterator = response.iter_lines(decode_unicode=True)
             
             # 첫 번째 줄(헤더)을 먼저 읽어서 씁니다.
             try:
                 header = next(line_iterator)
-                f.write(header + "\n")
+                txt_header = header.split('\t')
+                csv_writer.writerow(txt_header)
             except StopIteration:
                 print(f"Warning: File from {url} is empty.")
                 return
@@ -62,7 +63,8 @@ def download_and_save_single_file(name: str, url: str):
             # 나머지 데이터 라인을 순차적으로 씁니다.
             total_lines = 0
             for line in line_iterator:
-                f.write(line + "\n")
+                csv_line = line.split('\t')
+                csv_writer.writerow(csv_line)
                 total_lines += 1
                 # 진행 상황을 확인하기 위한 로그 (10만 라인마다 출력)
                 if total_lines % 100000 == 0:

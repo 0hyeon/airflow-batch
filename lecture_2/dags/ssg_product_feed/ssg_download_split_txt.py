@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import requests
 import os
 import glob
+import csv
 
 default_args = {
     'owner': 'airflow',
@@ -31,48 +32,49 @@ URLS = {
 # save path
 BASE_SAVE_DIR = "/opt/airflow/data/ssg_txt"
 
-def download_and_save_single_file(name: str, url: str):
+def download_and_convert_safely(name: str, url: str):
     """
-    하나의 URL에서 스트리밍으로 데이터를 받아, 단일 텍스트 파일로 저장합니다.
+    스트리밍으로 데이터를 받아, 한 줄씩 탭으로 분리한 뒤,
+    csv 라이브러리를 사용하여 안전한 CSV 형식으로 변환 후 저장합니다.
     """
-    folder_path = BASE_SAVE_DIR
-    os.makedirs(folder_path, exist_ok=True)
-    # 저장될 파일 이름을 더 명확하게 변경 (예: ssg_all_full.txt)
-    save_path = os.path.join(folder_path, f"{name}_full.txt")
-
-    print(f"Start downloading from {url} to {save_path}")
+    save_path = os.path.join(BASE_SAVE_DIR, f"{name}_full.csv")
+    print(f"Start safe conversion from {url} to {save_path}")
     
     try:
         response = requests.get(url, stream=True)
-        response.raise_for_status() # HTTP 오류 발생 시 예외 처리
-        # 원본 소스의 인코딩을 지정
+        response.raise_for_status()
         response.encoding = "euc-kr"
 
-        # 결과 파일을 쓰기 모드('w')로 한 번만 엽니다.
-        with open(save_path, "w", encoding="utf-8-sig") as f:
+        with open(save_path, "w", encoding="utf-8-sig", newline='') as f:
+            csv_writer = csv.writer(f, delimiter=',')
+            
             line_iterator = response.iter_lines(decode_unicode=True)
             
-            # 첫 번째 줄(헤더)을 먼저 읽어서 씁니다.
             try:
-                header = next(line_iterator)
-                f.write(header + "\n")
+                # 헤더 처리
+                header_line = next(line_iterator)
+                header_fields = header_line.split('\t')
+                csv_writer.writerow(header_fields)
             except StopIteration:
                 print(f"Warning: File from {url} is empty.")
                 return
 
-            # 나머지 데이터 라인을 순차적으로 씁니다.
+            # 데이터 라인 처리
             total_lines = 0
             for line in line_iterator:
-                f.write(line + "\n")
+                fields = line.split('\t')
+                csv_writer.writerow(fields)
                 total_lines += 1
-                # 진행 상황을 확인하기 위한 로그 (10만 라인마다 출력)
                 if total_lines % 100000 == 0:
-                    print(f"  ... {total_lines} lines written for {name}")
+                    print(f"  ... {total_lines} lines processed for {name}")
 
-        print(f"Finished: {name} (Total {total_lines} data lines saved to {save_path})")
+        print(f"Finished: {name} (Total {total_lines} lines safely saved as CSV to {save_path})")
 
     except requests.exceptions.RequestException as e:
         print(f"Error downloading {url}: {e}")
+        raise
+    except Exception as e:
+        print(f"Error processing data for {name}: {e}")
         raise
 
 def download_all():
@@ -88,7 +90,7 @@ def download_all():
             except Exception as e:
                 print(f" Error deleting file {f_path}: {e}")
     for name, url in URLS.items():
-        download_and_save_single_file(name, url)
+        download_and_convert_safely(name, url)
 
 # Airflow Operator 정의
 download_task = PythonOperator(
@@ -99,7 +101,7 @@ download_task = PythonOperator(
 
 trigger_next_dag = TriggerDagRunOperator(
     task_id='trigger_next_dag_task',
-    trigger_dag_id='ssg_txt_upload_to_s3_sequential',
+    trigger_dag_id='ssg_csv_upload_to_s3_sequential',
     dag=dag,
 )
 

@@ -14,12 +14,12 @@ default_args = {
 
 BASE_LOCAL_PATH = '/opt/airflow/data/ssg_txt'
 FILES_TO_UPLOAD = {
-    'ssg_all': 'ssg_all_full.txt',
-    'e_all': 'e_all_full.txt'
+    'ssg_all': 'ssg_all_full.csv',
+    'e_all': 'e_all_full.csv'
 }
 
 dag = DAG(
-    'ssg_txt_upload_to_s3_sequential',
+    'ssg_csv_upload_to_s3_sequential',
     default_args=default_args,
     schedule_interval=None,
     catchup=False,
@@ -59,10 +59,4 @@ for key, filename in FILES_TO_UPLOAD.items():
     previous_task = task
 
 
-trigger_emr_dag = TriggerDagRunOperator(
-    task_id='trigger_emr_iceberg_job',
-    trigger_dag_id='ssg_parquet_to_s3_emr',
-    dag=dag,
-)
-
-previous_task >> trigger_emr_dag
+previous_task

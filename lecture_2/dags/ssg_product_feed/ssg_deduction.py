@@ -9,8 +9,8 @@ SOURCE_AND_DEST_DIR = '/opt/airflow/data/ssg_txt'
 
 # 처리할 파일 목록
 FILES_TO_PROCESS = [
-    'ssg_brief_full.txt',
-    'e_brief_full.txt'
+    'ssg_brief_full.csv',
+    'e_brief_full.csv'
 ]
 KEY_COLUMN = 'id'
 
@@ -39,7 +39,7 @@ def deduplicate_files_in_place():
                 continue
 
             # 1. 파일을 메모리로 모두 읽어들입니다.
-            df = pd.read_csv(file_path, sep='\t', dtype={KEY_COLUMN: str})
+            df = pd.read_csv(file_path, sep=',', dtype={KEY_COLUMN: str})
             original_count = len(df)
             print(f"INFO: Read {original_count} rows from source.")
 
@@ -50,7 +50,7 @@ def deduplicate_files_in_place():
             print(f"INFO: Deduplication complete. {original_count} -> {final_count} rows.")
             
             # 3. 원본 파일을 열어, 중복 제거된 새로운 내용으로 덮어씁니다.
-            deduplicated_df.to_csv(file_path, sep='\t', index=False, header=True, encoding='utf-8-sig')
+            deduplicated_df.to_csv(file_path, sep=',', index=False, header=True, encoding='utf-8-sig')
             
             print(f"SUCCESS: Overwrote deduplicated data to '{file_path}'")
 
