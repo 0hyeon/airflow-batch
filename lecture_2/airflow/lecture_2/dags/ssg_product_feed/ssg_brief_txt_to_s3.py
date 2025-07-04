@@ -4,7 +4,7 @@ from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from datetime import datetime, timedelta
 import os
-#
+
 default_args = {
     'owner': 'airflow',
     'start_date': datetime(2025, 5, 13),
@@ -14,12 +14,12 @@ default_args = {
 
 BASE_LOCAL_PATH = '/opt/airflow/data/ssg_txt'
 FILES_TO_UPLOAD = {
-    'ssg_all': 'ssg_all_full.csv',
-    'e_all': 'e_all_full.csv'
+    'ssg_brief': 'ssg_brief_full.csv',
+    'e_brief': 'e_brief_full.csv'
 }
 
 dag = DAG(
-    'ssg_csv_upload_to_s3_sequential',
+    'ssg_brief_txt_upload_to_s3_sequential',
     default_args=default_args,
     schedule_interval=None,
     catchup=False,
@@ -59,4 +59,10 @@ for key, filename in FILES_TO_UPLOAD.items():
     previous_task = task
 
 
-previous_task
+trigger_emr_dag = TriggerDagRunOperator(
+    task_id='trigger_emr_iceberg_job',
+    trigger_dag_id='ssg_brief_upsert_to_all_emr',
+    dag=dag,
+)
+
+previous_task >> trigger_emr_dag

@@ -1,0 +1,125 @@
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: airflow-{{ .Values.appName }}-web
+  labels:
+    app.kubernetes.io/instance: airflow-{{ .Values.appName }}
+    app.kubernetes.io/name: airflow-{{ .Values.appName }}
+spec:
+  serviceName: airflow-{{ .Values.appName }}
+  replicas: {{ .Values.webReplicas }}
+  selector:
+    matchLabels:
+      deploy: airflow-{{ .Values.appName }}-web
+  template:
+    metadata:
+      labels:
+        deploy: airflow-{{ .Values.appName }}-web
+    spec:
+      containers:
+        - name: airflow-web
+          image: {{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}
+          imagePullPolicy: {{ .Values.airflow.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.airflow.port }}
+          env:
+            - name: AIRFLOW__CORE__EXECUTOR
+              value: {{ .Values.config.executor | quote }}
+          envFrom:
+            - configMapRef:
+                name: airflow-{{ .Values.appName }}-config
+          volumeMounts:
+            - name: airflow-pvc
+              mountPath: /dags
+              subPath: airflow/airflow-{{ .Values.appName }}/dags
+            - name: airflow-pvc
+              mountPath: /logs
+              subPath: airflow/airflow-{{ .Values.appName }}/logs
+            - name: airflow-templates
+              mountPath: /opt/airflow/webserver_config.py
+              subPath: airflow-web-config-template.py
+          command: ['/bin/bash', '-c']
+          args:
+            - airflow webserver;
+      restartPolicy: Always
+      volumes:
+        - name: airflow-pvc
+          persistentVolumeClaim:
+            claimName: nfs-pvc
+        - name: airflow-templates
+          configMap:
+            name: airflow-{{ .Values.appName }}-templates
+            items:
+              - key: airflow-web-config-template.py
+                path: airflow-web-config-template.py
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: airflow-{{ .Values.appName }}-scheduler
+  labels:
+    app.kubernetes.io/instance: airflow-{{ .Values.appName }}
+    app.kubernetes.io/name: airflow-{{ .Values.appName }}
+spec:
+  serviceName: airflow-{{ .Values.appName }}
+  replicas: 1
+  selector:
+    matchLabels:
+      deploy: airflow-{{ .Values.appName }}-scheduler
+  template:
+    metadata:
+      labels:
+        deploy: airflow-{{ .Values.appName }}-scheduler
+    spec:
+      initContainers:
+        - name: init-db
+          image: {{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}
+          imagePullPolicy: {{ .Values.airflow.imagePullPolicy }}
+          env:
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "{{ .Values.postgresql.conn }}/airflow-{{ .Values.appName }}"
+          command: ['/bin/bash', '-c']
+          args:
+            - until [ -n "`psql $AIRFLOW__DATABASE__SQL_ALCHEMY_CONN -l`" ]; do echo "Waiting"; sleep 10; done;
+              airflow db init;
+              airflow users create --username admin --firstname admin --lastname admin --role Admin --email djdjdjk2006@naver.com --password admin
+          volumeMounts:
+            - name: airflow-pvc
+              mountPath: /airflow
+              subPath: airflow
+      containers:
+        - name: airflow-scheduler
+          image: {{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}
+          imagePullPolicy: {{ .Values.airflow.imagePullPolicy }}
+          env:
+            - name: AIRFLOW__CORE__EXECUTOR
+              value: {{ .Values.config.executor | quote }}
+          envFrom:
+            - configMapRef:
+                name: airflow-{{ .Values.appName }}-config
+          volumeMounts:
+            - name: airflow-pvc
+              mountPath: /dags
+              subPath: airflow/airflow-{{ .Values.appName }}/dags
+            - name: airflow-pvc
+              mountPath: /logs
+              subPath: airflow/airflow-{{ .Values.appName }}/logs
+            - name: airflow-templates
+              mountPath: /airflow-pod.yaml
+              subPath: airflow-pod.yaml
+          command: ['/bin/bash', '-c']
+          args:
+            - airflow scheduler;
+      restartPolicy: Always
+      volumes:
+        - name: airflow-pvc
+          persistentVolumeClaim:
+            claimName: nfs-pvc
+        - name: airflow-templates
+          configMap:
+            name: airflow-{{ .Values.appName }}-templates
+            items:
+              - key: airflow-pod.yaml
+                path: airflow-pod.yaml
+                mode: 0777
