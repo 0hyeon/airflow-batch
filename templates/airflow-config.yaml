@@ -1,0 +1,17 @@
+# https://airflow.apache.org/docs/apache-airflow/2.3.2/configurations-ref.html
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-{{ .Values.appName }}-config
+data:
+  AIRFLOW__CORE__DEFAULT_TIMEZONE: "Asia/Seoul"
+  AIRFLOW__CORE__DAGS_FOLDER: "/dags"
+  AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: "Asia/Seoul"
+  AIRFLOW__WEBSERVER__SECRET_KEY: "0hyeon"
+  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+  AIRFLOW__LOGGING__BASE_LOG_FOLDER: "/logs"
+  AIRFLOW__LOGGING__DAG_PROCESSOR_MANAGER_LOG_LOCATION: "/logs/dag_processor_manager/dag_processor_manager.log"
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: "{{ .Values.worker.image }}"
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: "{{ .Values.worker.imageTag }}"
+  AIRFLOW__KUBERNETES__POD_TEMPLATE_FILE: "/airflow-pod.yaml"
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "{{ .Values.postgresql.conn }}/airflow-{{ .Values.appName }}"
