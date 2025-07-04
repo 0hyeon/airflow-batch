@@ -248,6 +248,9 @@ spec:
             - name: airflow-pvc
               mountPath: /logs
               subPath: airflow/airflow/logs
+            - name: airflow-pvc
+              mountPath: /opt/airflow
+              subPath: /opt/airflow
             - name: airflow-templates
               mountPath: /opt/airflow/webserver_config.py
               subPath: airflow-web-config-template.py
@@ -318,6 +321,9 @@ spec:
             - name: airflow-pvc
               mountPath: /logs
               subPath: airflow/airflow/logs
+            - name: airflow-pvc
+              mountPath: /opt/airflow
+              subPath: /opt/airflow
             - name: airflow-templates
               mountPath: /airflow-pod.yaml
               subPath: airflow-pod.yaml
