@@ -14,8 +14,8 @@ default_args = {
 
 BASE_LOCAL_PATH = '/opt/airflow/data/ssg_txt'
 FILES_TO_UPLOAD = {
-    'ssg_brief': 'ssg_brief_full.txt',
-    'e_brief': 'e_brief_full.txt'
+    'ssg_brief': 'ssg_brief_full.csv',
+    'e_brief': 'e_brief_full.csv'
 }
 
 dag = DAG(
@@ -61,7 +61,7 @@ for key, filename in FILES_TO_UPLOAD.items():
 
 trigger_emr_dag = TriggerDagRunOperator(
     task_id='trigger_emr_iceberg_job',
-    trigger_dag_id='ssg_brief_iceberg_to_s3_emr',
+    trigger_dag_id='ssg_brief_upsert_to_all_emr',
     dag=dag,
 )
 

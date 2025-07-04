@@ -3,6 +3,7 @@ from airflow.operators.python import PythonOperator
 from airflow.providers.amazon.aws.sensors.emr import EmrJobFlowSensor, EmrStepSensor
 from airflow.providers.amazon.aws.operators.emr import EmrTerminateJobFlowOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from datetime import datetime, timedelta
 from airflow.models import Variable
 # from plugins import slack
@@ -21,7 +22,7 @@ default_args = {
 }
 
 dag = DAG(
-    "ssg_parquet_to_s3_emr",
+    "ssg_brief_upsert_to_all_emr",
     default_args=default_args,
     schedule_interval=None,
     catchup=False,
@@ -83,8 +84,8 @@ create_emr = PythonOperator(
 def check_s3_files(**kwargs):
     hook = S3Hook(aws_conn_id=AWS_CONN_ID)
     required_keys = [
-        "ssg-raw-data/ssg_all_full.txt",
-        "ssg-raw-data/e_all_full.txt"
+        "ssg-raw-data/ssg_brief_full.txt",
+        "ssg-raw-data/e_brief_full.txt"
     ]
     for key in required_keys:
         if not hook.check_for_key(key, bucket_name=S3_BUCKET):
@@ -139,7 +140,7 @@ def submit_spark_job(**kwargs):
                         "--conf", "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem",
                         "--conf", "spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.DefaultAWSCredentialsProviderChain",
                         "--packages", "org.apache.iceberg:iceberg-spark-runtime-3.4_2.12:1.4.2",
-                        "s3://gyoung0-test/scripts/txt_to_parquet.py",
+                        "s3://gyoung0-test/scripts/brief_txt_to_parquet.py",
                     ],
                 },
             }
@@ -182,3 +183,12 @@ terminate_emr = EmrTerminateJobFlowOperator(
 
 # DAG chain
 create_emr >> check_s3_file_task >> wait_for_emr >> run_spark_job >> wait_for_spark >> terminate_emr
+
+trigger_rename_dag = TriggerDagRunOperator(
+    task_id="trigger_rename_parquet_dag",
+    trigger_dag_id="ssg_rename_parquet_with_multipart",
+    wait_for_completion=False,
+    dag=dag,
+)
+
+terminate_emr >> trigger_rename_dag
