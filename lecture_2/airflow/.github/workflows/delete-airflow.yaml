@@ -1,0 +1,37 @@
+name: delete-airflow
+
+on: delete
+
+jobs:
+  ondeleted:
+    runs-on: [airflow]
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v2
+        with:
+          repository: 0hyeon/airflow-batch
+          path: airflow
+          ref: ${{ github.ref }}
+
+      - name: install kubectl, helm
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
+          curl -LO "https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz" && tar -zxvf helm-v3.3.0-linux-amd64.tar.gz && chmod +x linux-amd64/helm && mv linux-amd64/helm /usr/local/bin/helm
+
+      - name: get ref name
+        run: |
+          REF_NAME=$(cat ${{ github.event_path }} | jq --raw-output '.ref')
+          echo running on branch ${REF_NAME}
+          echo "REF_NAME=${REF_NAME}" >> $GITHUB_ENV
+
+      - name: delete airflow
+        run: |
+          cd airflow/lecture_2
+
+          helm template airflow --set appName=${REF_NAME} | kubectl delete -f -
+
+      - name: delete pg db
+        run: |
+          cd airflow/lecture_2
+
+          cat job/db-delete.yaml | sed -r "s:BRANCH:${REF_NAME}:g" | kubectl apply -f -
