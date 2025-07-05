@@ -1,6 +1,0 @@
-apiVersion: v2
-name: knative-api
-description: A Helm chart for Kafka + Knative Eventing
-type: application
-version: 0.1.3
-appVersion: "0.1.1"
