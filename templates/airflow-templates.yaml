@@ -33,7 +33,7 @@ data:
               mountPath: /airflow-pod.yaml
               subPath: airflow-pod.yaml
             - name: airflow-pvc
-              mountPath: /opt/airflow
+              mountPath: /opt/airflow/data
               subPath: airflow/airflow/data
       volumes:
         - name: airflow-pvc
