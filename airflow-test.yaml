@@ -53,6 +53,9 @@ data:
             - name: airflow-templates
               mountPath: /airflow-pod.yaml
               subPath: airflow-pod.yaml
+            - name: airflow-pvc
+              mountPath: /opt/airflow
+              subPath: airflow/airflow/data
       volumes:
         - name: airflow-pvc
           persistentVolumeClaim:
