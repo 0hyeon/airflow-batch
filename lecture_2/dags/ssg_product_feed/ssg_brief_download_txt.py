@@ -78,6 +78,8 @@ def download_and_save_single_file(name: str, url: str):
 
 def download_all():
     """모든 URL에 대해 다운로드 함수를 순차적으로 실행합니다."""
+    os.makedirs(BASE_SAVE_DIR, exist_ok=True)  # ✅ 여기만 딱!
+
     for name, url in URLS.items():
         download_and_save_single_file(name, url)
 
