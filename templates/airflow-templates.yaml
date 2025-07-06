@@ -29,12 +29,12 @@ data:
             - name: airflow-pvc
               mountPath: /logs
               subPath: airflow/airflow-{{ .Values.appName }}/logs
-            - name: airflow-templates
-              mountPath: /airflow-pod.yaml
-              subPath: airflow-pod.yaml
             - name: airflow-pvc
               mountPath: /opt/airflow/data
               subPath: airflow/airflow-{{ .Values.appName }}/data
+            - name: airflow-templates
+              mountPath: /airflow-pod.yaml
+              subPath: airflow-pod.yaml
       volumes:
         - name: airflow-pvc
           persistentVolumeClaim:
