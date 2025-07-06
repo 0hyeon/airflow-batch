@@ -34,7 +34,7 @@ data:
               subPath: airflow-pod.yaml
             - name: airflow-pvc
               mountPath: /opt/airflow/data
-              subPath: airflow/airflow/data
+              subPath: airflow/airflow-{{ .Values.appName }}/data
       volumes:
         - name: airflow-pvc
           persistentVolumeClaim:
