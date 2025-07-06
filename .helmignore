@@ -1,0 +1,31 @@
+# 기본 추천
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.pyc
+
+# 문서 및 메타
+README.md
+Dockerfile
+requirements.txt
+packages.txt
+lecture_1/
+lecture_2/
+
+# 테스트 코드
+tests/
+
+# DAG, plugins 등 실행 시 GitSync나 PVC로 넣는다면 제외
+dags/
+plugins/
+include/
+
+# 빌드 아티팩트
+*.tgz
+
+# IDE 폴더
+.idea/
+.vscode/
