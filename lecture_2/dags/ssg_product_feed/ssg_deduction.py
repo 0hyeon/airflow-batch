@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import os
 
-SOURCE_AND_DEST_DIR = '/opt/airflow/data/ssg_txt'
+SOURCE_AND_DEST_DIR = '/data/ssg_txt'
 
 # 처리할 파일 목록
 FILES_TO_PROCESS = [

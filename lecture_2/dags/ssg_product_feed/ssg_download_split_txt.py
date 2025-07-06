@@ -30,7 +30,7 @@ URLS = {
 }
 
 # save path
-BASE_SAVE_DIR = "/opt/airflow/data/ssg_txt"
+BASE_SAVE_DIR = "/data/ssg_txt"
 
 def download_and_convert_safely(name: str, url: str):
     """

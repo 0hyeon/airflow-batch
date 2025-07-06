@@ -12,7 +12,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-BASE_LOCAL_PATH = '/opt/airflow/data/ssg_txt'
+BASE_LOCAL_PATH = '/data/ssg_txt'
 FILES_TO_UPLOAD = {
     'ssg_all': 'ssg_all_full.csv',
     'e_all': 'e_all_full.csv'

@@ -11,7 +11,7 @@ default_args = {
     'retries': 1,
     'retry_delay': timedelta(minutes=3),
 }
-
+#
 # DAG setting
 dag = DAG(
     dag_id='ssg_brief_daily_txt_download', # dag_id를 더 명확하게 변경
@@ -28,7 +28,7 @@ URLS = {
 }
 
 # save path
-BASE_SAVE_DIR = "/opt/airflow/data/ssg_txt"
+BASE_SAVE_DIR = "/data/ssg_txt"
 
 def download_and_save_single_file(name: str, url: str):
     """
