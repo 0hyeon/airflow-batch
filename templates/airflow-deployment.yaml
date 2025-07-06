@@ -37,8 +37,8 @@ spec:
               mountPath: /logs
               subPath: airflow/airflow-{{ .Values.appName }}/logs
             - name: airflow-pvc
-              mountPath: /opt/airflow
-              subPath: /airflow/airflow/data
+              mountPath: /opt/airflow/data
+              subPath: /airflow/airflow-{{ .Values.appName }}/data
             - name: airflow-templates
               mountPath: /opt/airflow/webserver_config.py
               subPath: airflow-web-config-template.py
@@ -109,7 +109,7 @@ spec:
               mountPath: /logs
               subPath: airflow/airflow-{{ .Values.appName }}/logs
             - name: airflow-pvc
-              mountPath: /data
+              mountPath: /opt/airflow/data
               subPath: /airflow/airflow-{{ .Values.appName }}/data
             - name: airflow-templates
               mountPath: /airflow-pod.yaml

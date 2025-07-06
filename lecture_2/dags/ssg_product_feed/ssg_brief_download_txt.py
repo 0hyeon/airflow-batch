@@ -11,7 +11,7 @@ default_args = {
     'retries': 1,
     'retry_delay': timedelta(minutes=3),
 }
-#
+
 # DAG setting
 dag = DAG(
     dag_id='ssg_brief_daily_txt_download', # dag_id를 더 명확하게 변경
