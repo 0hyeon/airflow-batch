@@ -50,8 +50,7 @@ jobs:
       - name: create airflow
         run: |
           cd airflow/lecture_2
-
-          helm upgrade --install airflow-${REF_NAME} ./airflow/lecture_2 \
+          helm upgrade --install airflow-${REF_NAME} ./ \
             --set appName=${REF_NAME}
 
       - name: show airflow ip
@@ -103,5 +102,5 @@ jobs:
       - name: deploy airflow
         run: |
           cd airflow/lecture_2
-          helm upgrade --install airflow-${REF_NAME} ./airflow/lecture_2 \
+          helm upgrade --install airflow-${REF_NAME} ./ \
             --set appName=${REF_NAME}
