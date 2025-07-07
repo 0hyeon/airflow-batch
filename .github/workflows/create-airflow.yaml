@@ -50,8 +50,9 @@ jobs:
       - name: create airflow
         run: |
           cd airflow
-          helm upgrade --install airflow-${REF_NAME} ./ \
-            --set appName=${REF_NAME}
+          echo "Using REF_NAME=${{ env.REF_NAME }}"
+          helm upgrade --install airflow-${{ env.REF_NAME }} ./ \
+            --set appName=${{ env.REF_NAME }}
 
       - name: show airflow ip
         run: |
@@ -102,5 +103,6 @@ jobs:
       - name: deploy airflow
         run: |
           cd airflow
-          helm upgrade --install airflow-${REF_NAME} ./ \
-            --set appName=${REF_NAME}
+          echo "Using REF_NAME=${{ env.REF_NAME }}"
+          helm upgrade --install airflow-${{ env.REF_NAME }} ./ \
+            --set appName=${{ env.REF_NAME }}
