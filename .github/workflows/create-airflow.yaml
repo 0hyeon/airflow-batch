@@ -49,7 +49,7 @@ jobs:
 
       - name: create airflow
         run: |
-          cd airflow/lecture_2
+          cd airflow
           helm upgrade --install airflow-${REF_NAME} ./ \
             --set appName=${REF_NAME}
 
@@ -101,6 +101,6 @@ jobs:
 
       - name: deploy airflow
         run: |
-          cd airflow/lecture_2
+          cd airflow
           helm upgrade --install airflow-${REF_NAME} ./ \
             --set appName=${REF_NAME}
