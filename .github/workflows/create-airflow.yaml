@@ -50,7 +50,8 @@ jobs:
         run: |
           cd airflow/lecture_2
 
-          helm template airflow ./ --set appName=${REF_NAME} | kubectl apply -f -
+          helm upgrade --install airflow-${REF_NAME} ./airflow/lecture_2 \
+            --set appName=${REF_NAME}
 
       - name: show airflow ip
         run: |
