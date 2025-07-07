@@ -44,13 +44,15 @@ jobs:
           mkdir -p /data/airflow/airflow/dags
           mkdir -p /data/airflow/airflow/logs
           rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow/dags/
+          rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow-${REF_NAME}/dags/
           chmod -R 777 /data/airflow/airflow
 
       - name: create airflow
         run: |
           cd airflow/lecture_2
 
-          helm template airflow ./ --set appName=${REF_NAME} | kubectl apply -f -
+          helm upgrade --install airflow-${REF_NAME} ./airflow/lecture_2 \
+            --set appName=${REF_NAME}
 
       - name: show airflow ip
         run: |
@@ -89,11 +91,17 @@ jobs:
       #     chmod -R 777 /data/airflow/airflow-${REF_NAME}
       - name: sync dags
         run: |
-          mkdir -p /data/airflow/airflow/dags
-          mkdir -p /data/airflow/airflow/logs
-          rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow/dags/
-          chmod -R 777 /data/airflow/airflow
+          mkdir -p /data/airflow/airflow-${REF_NAME}/dags
+          mkdir -p /data/airflow/airflow-${REF_NAME}/logs
+          rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow-${REF_NAME}/dags/
+          chmod -R 777 /data/airflow/airflow-${REF_NAME}
 
       - name: show airflow ip
         run: |
           kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress"
+
+      - name: deploy airflow
+        run: |
+          cd airflow/lecture_2
+          helm upgrade --install airflow-${REF_NAME} ./airflow/lecture_2 \
+            --set appName=${REF_NAME}
