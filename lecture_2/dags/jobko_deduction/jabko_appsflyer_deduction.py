@@ -8,7 +8,7 @@ from io import StringIO, BytesIO
 import aiofiles
 import os
 from datetime import timedelta as td
-from plugins import slack 
+# from plugins import slack 
 
 # event name 매핑 딕셔너리
 event_transfer = {
@@ -42,7 +42,7 @@ default_args = {
     'start_date': datetime(2025, 5, 13),
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
-    'on_failure_callback': slack.on_failure_callback,  # 🚨🚨📢Slack 알림 추가
+    # 'on_failure_callback': slack.on_failure_callback,  # 🚨🚨📢Slack 알림 추가
 }
 
 # api 호출 후 실행되게 할 예정
