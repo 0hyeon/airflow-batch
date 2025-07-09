@@ -84,8 +84,8 @@ create_emr = PythonOperator(
 def check_s3_files(**kwargs):
     hook = S3Hook(aws_conn_id=AWS_CONN_ID)
     required_keys = [
-        "ssg-raw-data/ssg_brief_full.txt",
-        "ssg-raw-data/e_brief_full.txt"
+        "ssg-raw-data/ssg_brief_full.csv",
+        "ssg-raw-data/e_brief_full.csv"
     ]
     for key in required_keys:
         if not hook.check_for_key(key, bucket_name=S3_BUCKET):
@@ -183,12 +183,3 @@ terminate_emr = EmrTerminateJobFlowOperator(
 
 # DAG chain
 create_emr >> check_s3_file_task >> wait_for_emr >> run_spark_job >> wait_for_spark >> terminate_emr
-
-trigger_rename_dag = TriggerDagRunOperator(
-    task_id="trigger_rename_parquet_dag",
-    trigger_dag_id="ssg_rename_parquet_with_multipart",
-    wait_for_completion=False,
-    dag=dag,
-)
-
-terminate_emr >> trigger_rename_dag

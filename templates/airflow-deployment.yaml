@@ -17,6 +17,10 @@ spec:
       labels:
         deploy: airflow-{{ .Values.appName }}-web
     spec:
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0      
       containers:
         - name: airflow-web
           image: {{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}
@@ -38,6 +42,9 @@ spec:
               subPath: airflow/airflow-{{ .Values.appName }}/logs
             - name: airflow-pvc
               mountPath: /opt/airflow/data
+              subPath: airflow/airflow-{{ .Values.appName }}/data
+            - name: airflow-pvc
+              mountPath: /data
               subPath: airflow/airflow-{{ .Values.appName }}/data
             - name: airflow-templates
               mountPath: /opt/airflow/webserver_config.py
@@ -75,6 +82,10 @@ spec:
       labels:
         deploy: airflow-{{ .Values.appName }}-scheduler
     spec:
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
       initContainers:
         - name: init-db
           image: {{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}
@@ -110,6 +121,9 @@ spec:
               subPath: airflow/airflow-{{ .Values.appName }}/logs
             - name: airflow-pvc
               mountPath: /opt/airflow/data
+              subPath: airflow/airflow-{{ .Values.appName }}/data
+            - name: airflow-pvc
+              mountPath: /data
               subPath: airflow/airflow-{{ .Values.appName }}/data
             - name: airflow-templates
               mountPath: /airflow-pod.yaml
