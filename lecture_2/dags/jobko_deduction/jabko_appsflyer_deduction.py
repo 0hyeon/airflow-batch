@@ -65,11 +65,11 @@ def run_async_processing():
     from datetime import timedelta
 
     BASE_PATH = "/opt/airflow/data/appsflyer_csv"
+    os.makedirs(BASE_PATH, exist_ok=True)
     FILES = [
         "aos_원픽.csv", "aos_원픽_2.csv", "aos_리타겟팅.csv", "aos_ua.csv",
         "ios_원픽.csv", "ios_원픽_2.csv", "ios_리타겟팅.csv", "ios_ua.csv"
     ]
-
 
     files = {}
     for fname in FILES:

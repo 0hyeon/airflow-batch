@@ -24,6 +24,8 @@ dag = DAG(
 def run_memory_optimized_processing():
     # 경로를 첫 번째 DAG의 저장 경로와 동일하게 수정합니다.
     BASE_PATH = "/opt/airflow/data/appsflyer_albamon_csv"
+    os.makedirs(BASE_PATH, exist_ok=True)
+
     OUTPUT_CSV_PATH = os.path.join(BASE_PATH, "final_albamon_attachment.csv")
     
     FILES = [
