@@ -17,7 +17,7 @@ default_args = {
     'aws_conn_id': 'aws_conn_id'
 }
 
-# --- 상수 정의 ---
+# --- 상수 정의 ---#
 URLS = {
     "ssg_brief": "http://ep2.ssgadm.com/channel/ssg/ssg_facebookAgenEpBrief.txt",
     "e_brief": "http://ep2.ssgadm.com/channel/emart/e_facebookAgenEpBrief.txt",
