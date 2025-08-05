@@ -1,0 +1,32 @@
+# https://cloud.google.com/kubernetes-engine/docs/how-to/persistent-volumes/gce-pd-csi-driver?hl=ko
+## gcloud container clusters update CLUSTER-NAME --region REGION --update-addons=GcePersistentDiskCsiDriver=ENABLED
+# https://8grams.medium.com/how-to-setup-persistent-storage-with-nfs-on-gke-google-kubernetes-engine-the-proper-way-daf40b63c149
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-worker
+  template:
+    metadata:
+      labels:
+        app: kafka-worker
+    spec:
+      containers:
+        - name: kafka-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: "{{ .Values.image.pullPolicy }}"
+          args:
+            - "--topic_to_consume={{ .Values.kafka.topic }}"
+            - "--brokers={{ .Values.kafka.brokers }}"
+            - "--group_id={{ .Values.kafka.groupId }}"
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu }}
+              memory: {{ .Values.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu }}
+              memory: {{ .Values.resources.limits.memory }}
