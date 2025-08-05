@@ -41,5 +41,5 @@ spec:
       volumes:
         - name: nfs-data
           hostPath:
-            path: /data/nfs
+            path: /var/nfs
             type: DirectoryOrCreate
