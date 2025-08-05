@@ -22,7 +22,7 @@ default_args = {
 }
 
 dag = DAG(
-    "ssg_brief_upsert_to_all_emr",
+    "ssg_pandas_deduplicate_brief_files_inplace",
     default_args=default_args,
     schedule_interval=None,
     catchup=False,

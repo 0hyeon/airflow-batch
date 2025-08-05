@@ -4,14 +4,14 @@ from airflow.operators.python import PythonOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from datetime import datetime, timedelta
 import os
-from plugins import slack 
+# from plugins import slack 
 
 default_args = {
     'owner': 'airflow',
     'start_date': datetime(2025, 5, 13),
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
-    'on_failure_callback': slack.on_failure_callback,  # 🚨🚨📢Slack 알림 추가
+    # 'on_failure_callback': slack.on_failure_callback,  # 🚨🚨📢Slack 알림 추가
 }
 
 dag = DAG(
