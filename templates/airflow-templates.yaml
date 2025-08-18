@@ -36,11 +36,11 @@ data:
               imagePullPolicy: {{ .Values.worker.imagePullPolicy }}
           resources:
             requests: 
-              cpu: "1" 
-              memory: "1200Mi"
+              cpu: "3" 
+              memory: "5Gi"
             limits: 
-              cpu: "1" 
-              memory: "1200Mi"
+              cpu: "4" 
+              memory: "8Gi"
           volumeMounts:
             - name: airflow-pvc
               mountPath: /dags
