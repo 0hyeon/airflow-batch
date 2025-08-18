@@ -11,7 +11,7 @@ from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 # --- 상수 정의 ---
 S3_CONN_ID = "aws_conn_id"
 S3_BUCKET = "gyoung0-test"
-MIN_PART_SIZE = 5 * 1024 * 1024  # 5MB
+MIN_PART_SIZE = 32 * 1024 * 1024  # 5MB
 
 log = logging.getLogger(__name__)
 
