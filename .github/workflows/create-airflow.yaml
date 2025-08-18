@@ -47,15 +47,23 @@ jobs:
       #     rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow-${REF_NAME}/dags/
       #     chmod -R 777 /data/airflow/airflow
 
-      - name: sync dags
+      # - name: sync dags
+      #   run: |
+      #     mkdir -p /data/airflow/airflow/dags
+      #     mkdir -p /data/airflow/airflow/logs
+      #     rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow/dags/
+      #     mkdir -p /data/airflow/airflow-${REF_NAME}/dags
+      #     cp -al /data/airflow/airflow/dags/. /data/airflow/airflow-${REF_NAME}/dags/
+      #     chmod 777 /data/airflow/airflow/dags
+      #     chmod 777 /data/airflow/airflow/logs
+      - name: sync dags (fast & safe)
         run: |
-          mkdir -p /data/airflow/airflow/dags
-          mkdir -p /data/airflow/airflow/logs
-          rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow/dags/
-          mkdir -p /data/airflow/airflow-${REF_NAME}/dags
-          cp -al /data/airflow/airflow/dags/. /data/airflow/airflow-${REF_NAME}/dags/
-          chmod 777 /data/airflow/airflow/dags
-          chmod 777 /data/airflow/airflow/logs
+          set -euo pipefail
+          shopt -s dotglob nullglob
+          mkdir -p "/data/airflow/airflow-${REF_NAME}/dags"
+          rsync -aW --no-inc-recursive --inplace --omit-dir-times --no-perms --no-owner --no-group \
+            --delete "airflow/lecture_2/dags/" "/data/airflow/airflow-${REF_NAME}/dags/"
+          chmod 777 "/data/airflow/airflow-${REF_NAME}/dags"
 
       - name: create airflow
         run: |
