@@ -16,66 +16,55 @@ jobs:
 
       - name: install kubectl, helm
         run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
-          curl -LO "https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz" && tar -zxvf helm-v3.3.0-linux-amd64.tar.gz && chmod +x linux-amd64/helm && mv linux-amd64/helm /usr/local/bin/helm
+          set -eux
+          curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
+          curl -LO "https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz"
+          tar -zxvf helm-v3.3.0-linux-amd64.tar.gz
+          chmod +x linux-amd64/helm && mv linux-amd64/helm /usr/local/bin/helm
 
-      - name: get ref name
+      - name: get ref name (sanitize)
         run: |
-          REF_NAME=${GITHUB_REF##*/}
-          echo running on branch ${REF_NAME}
-          echo "REF_NAME=${REF_NAME}" >> $GITHUB_ENV
+          SAFE="${GITHUB_REF_NAME//\//-}"
+          echo "REF_NAME=${SAFE}" >> $GITHUB_ENV
+          echo "running on ${SAFE}"
+
+      - name: wait nfs-server ready
+        run: |
+          kubectl rollout status statefulset/nfs-server --timeout=120s
 
       - name: create pg db
         run: |
+          set -eux
           cd airflow/lecture_2
-
           cat job/db-create.yaml | sed -r "s:BRANCH:${REF_NAME}:g" | kubectl apply -f -
 
-      # - name: sync dags
-      #   run: |
-      #     mkdir -p /data/airflow/airflow-${REF_NAME}/dags
-      #     mkdir -p /data/airflow/airflow-${REF_NAME}/logs
-
-      #     mv airflow/lecture_2/dags/* /data/airflow/airflow-${REF_NAME}/dags/
-
-      #     chmod -R 777 /data/airflow/airflow-${REF_NAME}
-      # - name: sync dags
-      #   run: |
-      #     mkdir -p /data/airflow/airflow/dags
-      #     mkdir -p /data/airflow/airflow/logs
-      #     rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow/dags/
-      #     rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow-${REF_NAME}/dags/
-      #     chmod -R 777 /data/airflow/airflow
-
-      # - name: sync dags
-      #   run: |
-      #     mkdir -p /data/airflow/airflow/dags
-      #     mkdir -p /data/airflow/airflow/logs
-      #     rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow/dags/
-      #     mkdir -p /data/airflow/airflow-${REF_NAME}/dags
-      #     cp -al /data/airflow/airflow/dags/. /data/airflow/airflow-${REF_NAME}/dags/
-      #     chmod 777 /data/airflow/airflow/dags
-      #     chmod 777 /data/airflow/airflow/logs
-      - name: sync dags (fast & safe)
+      - name: sync dags to nfs (direct & robust)
         run: |
           set -euo pipefail
           shopt -s dotglob nullglob
-          mkdir -p "/data/airflow/airflow-${REF_NAME}/dags"
-          rsync -aW --no-inc-recursive --inplace --omit-dir-times --no-perms --no-owner --no-group \
-            --delete "airflow/lecture_2/dags/" "/data/airflow/airflow-${REF_NAME}/dags/"
-          chmod 777 "/data/airflow/airflow-${REF_NAME}/dags"
+          # 대상 디렉토리 준비 + 권한
+          kubectl exec -i nfs-server-0 -- bash -lc \
+            "mkdir -p /nfs-data/airflow/airflow-${REF_NAME}/dags && chmod -R 0777 /nfs-data/airflow/airflow-${REF_NAME}"
+          # 소스→NFS 서버로 스트리밍 복사 (잡파일 제외)
+          tar --exclude='.git' --exclude='*.pyc' --exclude='__pycache__' \
+              -C airflow/lecture_2/dags -cf - . \
+            | kubectl exec -i nfs-server-0 -- tar -C /nfs-data/airflow/airflow-${REF_NAME}/dags -xf -
+          # 확인
+          kubectl exec -i nfs-server-0 -- ls -al /nfs-data/airflow/airflow-${REF_NAME}/dags | head
 
-      - name: create airflow
+      - name: create airflow (helm upgrade --install)
         run: |
+          set -eux
           cd airflow
           echo "Using REF_NAME=${{ env.REF_NAME }}"
           helm upgrade --install airflow-${{ env.REF_NAME }} ./ \
-            --set appName=${{ env.REF_NAME }}
+            --set appName=${{ env.REF_NAME }} \
+            --wait --timeout 5m
 
       - name: show airflow ip
         run: |
-          sleep 10
-          kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress"
+          kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress" || true
 
   onpushed:
     if: ${{ github.event.created == false }}
@@ -90,46 +79,43 @@ jobs:
 
       - name: install kubectl, helm
         run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
-          curl -LO "https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz" && tar -zxvf helm-v3.3.0-linux-amd64.tar.gz && chmod +x linux-amd64/helm && mv linux-amd64/helm /usr/local/bin/helm
+          set -eux
+          curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
+          curl -LO "https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz"
+          tar -zxvf helm-v3.3.0-linux-amd64.tar.gz
+          chmod +x linux-amd64/helm && mv linux-amd64/helm /usr/local/bin/helm
 
-      - name: get ref name
+      - name: get ref name (sanitize)
         run: |
-          REF_NAME=${GITHUB_REF##*/}
-          echo running on branch ${REF_NAME}
-          echo "REF_NAME=${REF_NAME}" >> $GITHUB_ENV
+          SAFE="${GITHUB_REF_NAME//\//-}"
+          echo "REF_NAME=${SAFE}" >> $GITHUB_ENV
+          echo "running on ${SAFE}"
 
-      - name: sync dags (fast & safe)
+      - name: wait nfs-server ready
+        run: |
+          kubectl rollout status statefulset/nfs-server --timeout=120s
+
+      - name: sync dags to nfs (direct & robust)
         run: |
           set -euo pipefail
           shopt -s dotglob nullglob
-          mkdir -p "/data/airflow/airflow-${REF_NAME}/dags"
-          rsync -aW --no-inc-recursive --inplace --omit-dir-times --no-perms --no-owner --no-group \
-            --delete "airflow/lecture_2/dags/" "/data/airflow/airflow-${REF_NAME}/dags/"
-          chmod 777 "/data/airflow/airflow-${REF_NAME}/dags"
-
-      # - name: sync dags
-      #   run: |
-      #     mkdir -p /data/airflow/airflow-${REF_NAME}/dags
-      #     mkdir -p /data/airflow/airflow-${REF_NAME}/logs
-
-      #     mv airflow/lecture_2/dags/* /data/airflow/airflow-${REF_NAME}/dags/
-
-      #     chmod -R 777 /data/airflow/airflow-${REF_NAME}
-      # - name: sync dags
-      #   run: |
-      #     mkdir -p /data/airflow/airflow-${REF_NAME}/dags
-      #     mkdir -p /data/airflow/airflow-${REF_NAME}/logs
-      #     rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow-${REF_NAME}/dags/
-      #     chmod -R 777 /data/airflow/airflow-${REF_NAME}
+          kubectl exec -i nfs-server-0 -- bash -lc \
+            "mkdir -p /nfs-data/airflow/airflow-${REF_NAME}/dags && chmod -R 0777 /nfs-data/airflow/airflow-${REF_NAME}"
+          tar --exclude='.git' --exclude='*.pyc' --exclude='__pycache__' \
+              -C airflow/lecture_2/dags -cf - . \
+            | kubectl exec -i nfs-server-0 -- tar -C /nfs-data/airflow/airflow-${REF_NAME}/dags -xf -
+          kubectl exec -i nfs-server-0 -- ls -al /nfs-data/airflow/airflow-${REF_NAME}/dags | head
 
       - name: show airflow ip
         run: |
-          kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress"
+          kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress" || true
 
-      - name: deploy airflow
+      - name: deploy airflow (helm upgrade --install)
         run: |
+          set -eux
           cd airflow
           echo "Using REF_NAME=${{ env.REF_NAME }}"
           helm upgrade --install airflow-${{ env.REF_NAME }} ./ \
-            --set appName=${{ env.REF_NAME }}
+            --set appName=${{ env.REF_NAME }} \
+            --wait --timeout 5m
