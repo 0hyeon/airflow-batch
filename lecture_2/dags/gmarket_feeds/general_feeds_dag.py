@@ -11,6 +11,7 @@ S3_CONN_ID = "aws_conn_id"
 S3_BUCKET = "gyoung0-test"
 
 
+#
 @dag(
     dag_id="gmarket_general_feeds_dag_sequential",
     start_date=pendulum.datetime(2025, 7, 16, tz="Asia/Seoul"),
