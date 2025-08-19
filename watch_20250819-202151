@@ -1,0 +1,38 @@
+Every 2.0s:                                                                                                                GB-mb001-wsjang.local: 20시 21분 46초
+                                                                                                                                                   in 4.994s (0)
+==== 2025년 8월 19일 화요일 20시 21분 46초 KST ====                                                                                                             
+-n Node count:                                                                                                                                                  
+       1                                                                                                                                                        
+                                                                                                                                                                
+NAME                                             CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)                                                                
+gke-lecture-cluster-private-pool-5ce18cf6-ztvw   131m         3%       4060Mi          30%                                                                      
+                                                                                                                                                                
+NAME                              READY   STATUS              RESTARTS   AGE                                                                                    
+pod/airflow-0hyeon-scheduler-0    0/1     Pending             0          5m36s                                                                                  
+pod/airflow-0hyeon-web-0          0/1     Pending             0          5m37s                                                                                  
+pod/airflow-main-scheduler-0      0/1     Init:0/1            0          117m                                                                                   
+pod/airflow-main-web-0            0/1     ContainerCreating   0          117m                                                                                   
+pod/airflow-postgres-0            1/1     Running             0          5h26m                                                                                  
+pod/gh-runner-c464bc65b-ddj74     1/1     Running             0          5h27m                                                                                  
+pod/nfs-server-0                  1/1     Running             0          6m31s                                                                                  
+pod/nfs-server-6d74d7846d-4fpwh   1/1     Running             0          5h27m                                                                                  
+pod/nfs-server-cn299              1/1     Running             0          5h41m                                                                                  
+                                                                                                                                                                
+NAME                       TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)          AGE                                                                 
+service/airflow-0hyeon     LoadBalancer   34.118.236.174   34.61.129.69    8080:31120/TCP   141m                                                                
+service/airflow-main       LoadBalancer   34.118.228.199   34.66.144.160   8080:30245/TCP   43d                                                                 
+service/airflow-postgres   ClusterIP      None             <none>          5432/TCP         46d                                                                 
+service/kubernetes         ClusterIP      34.118.224.1     <none>          443/TCP          128d                                                                
+service/nfs-server         ClusterIP      34.118.229.211   <none>          2049/TCP         17h                                                                 
+service/nfs-server-hl      ClusterIP      None             <none>          <none>           121m                                                                
+                                                                                                                                                                
+NAME                        DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE                                                            
+daemonset.apps/nfs-server   1         1         1       1            1           <none>          6h48m                                                          
+                                                                                                                                                                
+NAME                         READY   UP-TO-DATE   AVAILABLE   AGE                                                                                               
+deployment.apps/gh-runner    1/1     1            1           128d                                                                                              
+deployment.apps/nfs-server   1/1     1            1           12d                                                                                               
+                                                                                                                                                                
+NAME                                    DESIRED   CURRENT   READY   AGE                                                                                         
+replicaset.apps/gh-runner-79d9bf49b8    0         0         0       10h                                                                                         
+replicaset.apps/gh-runner-9dc9c84d7     0         0         0       128d                                                                                        

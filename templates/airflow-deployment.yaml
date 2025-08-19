@@ -101,7 +101,7 @@ spec:
           volumeMounts:
             - name: airflow-pvc
               mountPath: /airflow
-              subPath: airflow
+              subPath: airflow/airflow-{{ .Values.appName }}
       containers:
         - name: airflow-scheduler
           image: {{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}

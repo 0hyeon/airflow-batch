@@ -1,0 +1,33 @@
+Every 2.0s:                                                               GB-mb001-wsjang.local: 17시 21분 55초
+                                                                                                  in 5.265s (0)
+==== 2025년 8월 19일 화요일 17시 21분 55초 KST ====                                                            
+-n Node count:                                                                                                 
+       2                                                                                                       
+                                                                                                               
+NAME                                             CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)               
+gke-lecture-cluster-private-pool-5ce18cf6-pkth   79m          2%       4324Mi          32%                     
+gke-lecture-cluster-private-pool-5ce18cf6-ztvw   569m         14%      6664Mi          50%                     
+                                                                                                               
+NAME                                                                  READY   STATUS    RESTARTS   AGE         
+pod/airflow-0hyeon-scheduler-0                                        1/1     Running   0          64m         
+pod/airflow-0hyeon-web-0                                              1/1     Running   0          65m         
+pod/airflow-main-scheduler-0                                          1/1     Running   0          147m        
+pod/airflow-main-web-0                                                1/1     Running   0          147m        
+pod/airflow-postgres-0                                                1/1     Running   0          146m        
+pod/gh-runner-c464bc65b-ddj74                                         1/1     Running   0          147m        
+pod/gmarket-general-feeds-dag-sequential-process-gmarket-f-cfxj36xb   1/1     Running   0          61m         
+pod/nfs-server-6d74d7846d-4fpwh                                       1/1     Running   0          147m        
+pod/nfs-server-6t5nw                                                  1/1     Running   0          60m         
+pod/nfs-server-cn299                                                  1/1     Running   0          161m        
+                                                                                                               
+NAME                       TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)          AGE                
+service/airflow-0hyeon     LoadBalancer   34.118.233.78    34.70.230.139   8080:31383/TCP   7h8m               
+service/airflow-main       LoadBalancer   34.118.228.199   34.66.144.160   8080:30245/TCP   43d                
+service/airflow-postgres   ClusterIP      None             <none>          5432/TCP         46d                
+service/kubernetes         ClusterIP      34.118.224.1     <none>          443/TCP          128d               
+service/nfs-server         ClusterIP      34.118.229.211   <none>          2049/TCP         14h                
+                                                                                                               
+NAME                        DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE           
+daemonset.apps/nfs-server   2         2         2       2            2           <none>          3h48m         
+                                                                                                               
+NAME                         READY   UP-TO-DATE   AVAILABLE   AGE                                              
