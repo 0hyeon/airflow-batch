@@ -1,5 +1,67 @@
 # https://8grams.medium.com/how-to-setup-persistent-storage-with-nfs-on-gke-google-kubernetes-engine-the-proper-way-daf40b63c149
 ---
+
+# 1) NFS 서버용 Headless Service (Pod-별 DNS 제공)
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfs-server-hl
+  namespace: default
+  labels: { app: nfs-server }
+spec:
+  clusterIP: None
+  selector: { app: nfs-server }
+
+---
+  # 2) NFS 서버가 사용할 백엔드 디스크 (서버 내부에서 /nfs-data로 마운트)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-backend-pvc
+  namespace: default
+spec:
+  accessModes: [ ReadWriteOnce ]
+  resources: { requests: { storage: 10Gi } }
+  storageClassName: standard
+
+---
+# 3) NFS 서버 StatefulSet (항상 nfs-server-0가 생김)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nfs-server
+  namespace: default
+  labels: { app: nfs-server }
+spec:
+  serviceName: nfs-server-hl
+  replicas: 1
+  selector:
+    matchLabels: { app: nfs-server }
+  template:
+    metadata:
+      labels: { app: nfs-server }
+    spec:
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+      - name: nfs
+        image: itsthenetwork/nfs-server-alpine:latest
+        securityContext: { privileged: true }
+        env:
+        - name: SHARED_DIRECTORY
+          value: /nfs-data
+        ports:
+        - { name: nfs, containerPort: 2049, protocol: TCP }
+        volumeMounts:
+        - { name: backend, mountPath: /nfs-data }
+      volumes:
+      - name: backend
+        persistentVolumeClaim:
+          claimName: nfs-backend-pvc
+
+---
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -13,7 +75,7 @@ spec:
   mountOptions: [ vers=4.1, timeo=600, retrans=2, noresvport ]
   nfs:
     server: nfs-server-0.nfs-server-hl.default.svc.cluster.local
-    path: "/nfs-data"            
+    path: "/"            
 
 ---
 kind: PersistentVolumeClaim
@@ -28,3 +90,5 @@ spec:
     requests:
       storage: 10Gi
   volumeName: nfs-pv             
+
+---
