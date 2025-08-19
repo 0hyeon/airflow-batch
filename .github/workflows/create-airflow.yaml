@@ -116,12 +116,12 @@ jobs:
       #     mv airflow/lecture_2/dags/* /data/airflow/airflow-${REF_NAME}/dags/
 
       #     chmod -R 777 /data/airflow/airflow-${REF_NAME}
-      - name: sync dags
-        run: |
-          mkdir -p /data/airflow/airflow-${REF_NAME}/dags
-          mkdir -p /data/airflow/airflow-${REF_NAME}/logs
-          rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow-${REF_NAME}/dags/
-          chmod -R 777 /data/airflow/airflow-${REF_NAME}
+      # - name: sync dags
+      #   run: |
+      #     mkdir -p /data/airflow/airflow-${REF_NAME}/dags
+      #     mkdir -p /data/airflow/airflow-${REF_NAME}/logs
+      #     rsync -av --delete airflow/lecture_2/dags/ /data/airflow/airflow-${REF_NAME}/dags/
+      #     chmod -R 777 /data/airflow/airflow-${REF_NAME}
 
       - name: show airflow ip
         run: |
