@@ -11,7 +11,7 @@ from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 # --- 상수 정의 ---
 S3_CONN_ID = "aws_conn_id"
 S3_BUCKET = "gyoung0-test"
-MIN_PART_SIZE = 32 * 1024 * 1024  # 5MB
+MIN_PART_SIZE = 64 * 1024 * 1024  # 32MB
 
 log = logging.getLogger(__name__)
 
@@ -101,9 +101,15 @@ def gmarket_google_feeds_dag():
         parts = []
 
         gzip_compressor = gzip.GzipFile(fileobj=part_buffer, mode="wb")
+        # csv를 곧장 gzip으로 쓰도록 1회만 래핑
+        text_out = io.TextIOWrapper(gzip_compressor, encoding="utf-8-sig", newline="")
+        writer = csv.writer(text_out, quoting=csv.QUOTE_MINIMAL)
 
         def flush_buffer():
-            nonlocal part_number, part_buffer, gzip_compressor
+            nonlocal part_number, part_buffer, gzip_compressor, text_out, writer
+            # gzip 내부버퍼까지 모두 밀어 넣고 닫는다
+            text_out.flush()
+            gzip_compressor.flush()
             gzip_compressor.close()
 
             if part_buffer.tell() > 0:
@@ -116,13 +122,19 @@ def gmarket_google_feeds_dag():
                     Key=s3_key,
                     PartNumber=part_number,
                     UploadId=upload_id,
-                    Body=part_buffer.getvalue(),
+                    Body=part_buffer,
+                    # Body=part_buffer.getvalue(),
                 )
                 parts.append({"PartNumber": part_number, "ETag": resp["ETag"]})
                 part_number += 1
 
+            # 새 파트 시작
             part_buffer = io.BytesIO()
             gzip_compressor = gzip.GzipFile(fileobj=part_buffer, mode="wb")
+            text_out = io.TextIOWrapper(
+                gzip_compressor, encoding="utf-8-sig", newline=""
+            )
+            writer = csv.writer(text_out, quoting=csv.QUOTE_MINIMAL)
 
         try:
             for url in urls:
@@ -136,30 +148,32 @@ def gmarket_google_feeds_dag():
                         r.raise_for_status()
 
                         log.info(f"처리 중: {url}")
+                        raw = io.BufferedReader(r.raw)
                         source_stream = (
-                            gzip.GzipFile(fileobj=r.raw)
-                            if url.endswith(".gz")
-                            else r.raw
+                            gzip.GzipFile(fileobj=raw) if url.endswith(".gz") else raw
                         )
 
                         for line_bytes in source_stream:
-                            line_str = line_bytes.decode("utf-8-sig")
-                            reader = csv.reader([line_str], delimiter="\t")
-                            fields = next(reader)
-
-                            output = io.StringIO()
-                            writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+                            fields = next(
+                                csv.reader(
+                                    [line_bytes.decode("utf-8-sig")], delimiter="\t"
+                                )
+                            )
+                            # 한 번 만든 writer로 바로 gzip에 기록
                             writer.writerow(fields)
-
-                            gzip_compressor.write(output.getvalue().encode("utf-8-sig"))
-
-                        if part_buffer.tell() >= MIN_PART_SIZE:
-                            flush_buffer()
+                            # 내부 버퍼를 밀어 넣고 현재 파트 크기 확인
+                            text_out.flush()
+                            gzip_compressor.flush()
+                            if part_buffer.tell() >= MIN_PART_SIZE:
+                                flush_buffer()
 
                 except requests.exceptions.RequestException as e:
                     log.warning(f"URL 요청 실패, 건너뜁니다: {url}, 오류: {e}")
                     continue
 
+            # 마지막 잔여 데이터 마감
+            text_out.flush()
+            gzip_compressor.flush()
             flush_buffer()
 
             if not parts:

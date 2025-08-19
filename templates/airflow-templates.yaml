@@ -38,9 +38,11 @@ data:
             requests: 
               cpu: "3" 
               memory: "5Gi"
+              ephemeral-storage: "10Gi"
             limits: 
               cpu: "4" 
               memory: "8Gi"
+              ephemeral-storage: "20Gi"
           volumeMounts:
             - name: airflow-pvc
               mountPath: /dags

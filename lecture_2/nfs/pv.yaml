@@ -9,9 +9,11 @@ spec:
     storage: 10Gi
   accessModes:
     - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  mountOptions: [ vers=4.1, timeo=600, retrans=2, noresvport ]
   nfs:
-    server: nfs-server.default.svc.cluster.local
-    path: '/'
+    server: nfs-server-0.nfs-server-hl.default.svc.cluster.local
+    path: "/nfs-data"            
 
 ---
 kind: PersistentVolumeClaim
@@ -25,3 +27,4 @@ spec:
   resources:
     requests:
       storage: 10Gi
+  volumeName: nfs-pv             

@@ -99,10 +99,14 @@ jobs:
           echo running on branch ${REF_NAME}
           echo "REF_NAME=${REF_NAME}" >> $GITHUB_ENV
 
-      - name: deploy NFS DaemonSet + PV
+      - name: sync dags (fast & safe)
         run: |
-          kubectl apply -f airflow/lecture_2/nfs/nfs-server-daemonset.yaml
-          kubectl apply -f airflow/lecture_2/nfs/pv.yaml
+          set -euo pipefail
+          shopt -s dotglob nullglob
+          mkdir -p "/data/airflow/airflow-${REF_NAME}/dags"
+          rsync -aW --no-inc-recursive --inplace --omit-dir-times --no-perms --no-owner --no-group \
+            --delete "airflow/lecture_2/dags/" "/data/airflow/airflow-${REF_NAME}/dags/"
+          chmod 777 "/data/airflow/airflow-${REF_NAME}/dags"
 
       # - name: sync dags
       #   run: |
