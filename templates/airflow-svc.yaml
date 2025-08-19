@@ -2,11 +2,15 @@ apiVersion: v1
 kind: Service
 metadata:
   name: airflow-{{ .Values.appName }}
+  labels:
+    app.kubernetes.io/instance: airflow-{{ .Values.appName }}
+    app.kubernetes.io/name: airflow-{{ .Values.appName }}
 spec:
   type: LoadBalancer
   selector:
     deploy: airflow-{{ .Values.appName }}-web
   ports:
-    - port: {{ .Values.service.port }}
+    - name: http
+      port: {{ default 8080 .Values.service.port }}
+      targetPort: {{ default 8080 .Values.airflow.port }}
       protocol: TCP
-      targetPort: {{ .Values.airflow.port }}
