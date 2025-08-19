@@ -53,7 +53,7 @@ def gmarket_general_feeds_dag_sequential():
 
                 # TSV 원본을 문자열로 변환
 
-                # -- 추가 코드 --
+                # -- 추가 코드 ---
                 try:
                     decoded_str = decompressed_content.decode("utf-8-sig")
                 except UnicodeDecodeError:
