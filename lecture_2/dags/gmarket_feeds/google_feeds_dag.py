@@ -11,7 +11,7 @@ from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 # --- 상수 정의 ---
 S3_CONN_ID = "aws_conn_id"
 S3_BUCKET = "gyoung0-test"
-MIN_PART_SIZE = 64 * 1024 * 1024  # 32MB
+MIN_PART_SIZE = 64 * 1024 * 1024  # 64MB
 
 log = logging.getLogger(__name__)
 
@@ -31,16 +31,11 @@ def gmarket_google_feeds_dag():
 
     - **실행 시간이 11시 ~ 15시 59분 사이일 경우:** 옥션
     - **그 외 스케줄 시간:** 지마켓
-
-    Airflow의 예약 시간(logical_date)이 아닌, 실제 코드가 실행되는
-    현재 시간을 기준으로 처리할 마켓을 결정합니다.
     """
 
     @task
     def get_target_info() -> dict:
-        """
-        [수정됨] 실제 현재 시간을 기준으로 마켓, 날짜, 시간 정보를 결정합니다.
-        """
+        """실제 현재 시간을 기준으로 마켓, 날짜, 시간 정보를 결정"""
         now_kst = pendulum.now("Asia/Seoul")
         hour_kst = now_kst.hour
 
@@ -58,10 +53,6 @@ def gmarket_google_feeds_dag():
             target_hour = "16"
         else:  # 22시 이후 ~ 4시 이전
             target_hour = "22"
-
-        print("market : ", market)
-        print("target_hour : ", target_hour)
-        print("now_kst : ", now_kst.to_date_string().replace("-", ""))
 
         return {
             "market": market,
@@ -100,16 +91,19 @@ def gmarket_google_feeds_dag():
         part_number = 1
         parts = []
 
+        # gzip → text → csv writer (한 번만 래핑해서 계속 사용)
         gzip_compressor = gzip.GzipFile(fileobj=part_buffer, mode="wb")
-        # csv를 곧장 gzip으로 쓰도록 1회만 래핑
         text_out = io.TextIOWrapper(gzip_compressor, encoding="utf-8-sig", newline="")
         writer = csv.writer(text_out, quoting=csv.QUOTE_MINIMAL)
 
-        def flush_buffer():
+        # --- 성능 미세 튜닝: 주기적 체크 기반 플러시/파트 분할 ---
+        CHECK_INTERVAL = 1 * 1024 * 1024  # 1MB마다 확인
+        written_since_check = 0
+
+        def flush_buffer(final: bool = False):
             nonlocal part_number, part_buffer, gzip_compressor, text_out, writer
-            # gzip 내부버퍼까지 모두 밀어 넣고 닫는다
+            # 현재 gzip 멤버를 종료하여 푸터까지 쓰기
             text_out.flush()
-            gzip_compressor.flush()
             gzip_compressor.close()
 
             if part_buffer.tell() > 0:
@@ -123,18 +117,27 @@ def gmarket_google_feeds_dag():
                     PartNumber=part_number,
                     UploadId=upload_id,
                     Body=part_buffer,
-                    # Body=part_buffer.getvalue(),
                 )
                 parts.append({"PartNumber": part_number, "ETag": resp["ETag"]})
                 part_number += 1
 
-            # 새 파트 시작
-            part_buffer = io.BytesIO()
-            gzip_compressor = gzip.GzipFile(fileobj=part_buffer, mode="wb")
-            text_out = io.TextIOWrapper(
-                gzip_compressor, encoding="utf-8-sig", newline=""
-            )
-            writer = csv.writer(text_out, quoting=csv.QUOTE_MINIMAL)
+            if not final:
+                # 다음 파트 준비
+                part_buffer = io.BytesIO()
+                gzip_compressor = gzip.GzipFile(fileobj=part_buffer, mode="wb")
+                text_out = io.TextIOWrapper(
+                    gzip_compressor, encoding="utf-8-sig", newline=""
+                )
+                writer = csv.writer(text_out, quoting=csv.QUOTE_MINIMAL)
+
+        def maybe_flush_part():
+            nonlocal written_since_check
+            if written_since_check >= CHECK_INTERVAL:
+                text_out.flush()
+                gzip_compressor.flush()
+                written_since_check = 0
+                if part_buffer.tell() >= MIN_PART_SIZE:
+                    flush_buffer()
 
         try:
             for url in urls:
@@ -148,33 +151,49 @@ def gmarket_google_feeds_dag():
                         r.raise_for_status()
 
                         log.info(f"처리 중: {url}")
-                        raw = io.BufferedReader(r.raw)
-                        source_stream = (
-                            gzip.GzipFile(fileobj=raw) if url.endswith(".gz") else raw
-                        )
+                        # 전송 레벨 압축(Content-/Transfer-Encoding)도 안전히 해제
+                        r.raw.decode_content = True
 
-                        for line_bytes in source_stream:
-                            fields = next(
-                                csv.reader(
-                                    [line_bytes.decode("utf-8-sig")], delimiter="\t"
+                        if url.endswith(".gz"):
+                            # .gz 파일은 GzipFile로 직접 스트리밍 해제
+                            with gzip.GzipFile(fileobj=r.raw) as src:
+                                for line_bytes in iter(lambda: src.readline(), b""):
+                                    if not line_bytes:
+                                        break
+                                    fields = next(
+                                        csv.reader(
+                                            [line_bytes.decode("utf-8-sig")],
+                                            delimiter="\t",
+                                        )
+                                    )
+                                    writer.writerow(fields)
+
+                                    # 성능 튜닝: 누적 바이트 기준 주기적 체크
+                                    written_since_check += len(line_bytes)
+                                    maybe_flush_part()
+                        else:
+                            # 평문 TSV는 iter_lines()로 안전하게 라인 단위 스트리밍
+                            for line_bytes in r.iter_lines(
+                                chunk_size=65536, decode_unicode=False
+                            ):
+                                if not line_bytes:
+                                    continue
+                                fields = next(
+                                    csv.reader(
+                                        [line_bytes.decode("utf-8-sig")], delimiter="\t"
+                                    )
                                 )
-                            )
-                            # 한 번 만든 writer로 바로 gzip에 기록
-                            writer.writerow(fields)
-                            # 내부 버퍼를 밀어 넣고 현재 파트 크기 확인
-                            text_out.flush()
-                            gzip_compressor.flush()
-                            if part_buffer.tell() >= MIN_PART_SIZE:
-                                flush_buffer()
+                                writer.writerow(fields)
+
+                                written_since_check += len(line_bytes)
+                                maybe_flush_part()
 
                 except requests.exceptions.RequestException as e:
                     log.warning(f"URL 요청 실패, 건너뜁니다: {url}, 오류: {e}")
                     continue
 
-            # 마지막 잔여 데이터 마감
-            text_out.flush()
-            gzip_compressor.flush()
-            flush_buffer()
+            # 마지막 잔여 데이터 마감 (새 멤버 재오픈 없이 종료)
+            flush_buffer(final=True)
 
             if not parts:
                 raise ValueError("업로드할 데이터가 없습니다.")
@@ -195,8 +214,8 @@ def gmarket_google_feeds_dag():
             )
             raise
 
-    # --- DAG 흐름 정의 (호출 부분 수정) ---
-    target_info = get_target_info()  # 입력 변수 없이 호출
+    # --- DAG 흐름 정의 ---
+    target_info = get_target_info()
     process_market_files(target_info=target_info)
 
 
