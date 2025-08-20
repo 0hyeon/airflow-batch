@@ -39,59 +39,107 @@ def gmarket_general_feeds_dag_sequential():
         upload_id = mpu["UploadId"]
         parts = []
 
+        # 멀티파트 제약: 마지막을 제외한 파트는 >= 5MB
+        MIN_PART = 5 * 1024 * 1024  # 5MB
+        CHUNK_1MB = 1024 * 1024
+        buffer = bytearray()
+        part_number = 1
+
+        # 간단 백오프용
+        def _sleep_backoff(attempt: int):
+            import random, time
+
+            time.sleep(min(30, 2**attempt) + random.uniform(0, 0.3))
+
         try:
             for index, url in enumerate(urls):
-                part_number = index + 1
-                print(f"--- {market_name} 파트 {part_number} 처리 시작: {url} ---")
+                print(f"--- {market_name} 파트 후보 #{index+1} 다운로드: {url} ---")
 
-                # 1. 원본 TSV.GZ 파일 다운로드
-                with requests.get(url, stream=True, timeout=300) as response:
-                    response.raise_for_status()
-                    content = response.content
+                # 1) 404 스킵 + 최대 3회 재시도(+지터)
+                content = None
+                for attempt in range(3):
+                    try:
+                        headers = {"User-Agent": "airflow-feed-fetcher/1.0"}
+                        with requests.get(
+                            url,
+                            stream=True,
+                            timeout=(10, 600),  # connect 10s, read 10분
+                            headers=headers,
+                        ) as r:
+                            if r.status_code == 404:
+                                print(f"[INFO] 404 스킵: {url}")
+                                content = None
+                                break
+                            r.raise_for_status()
+                            # 1MB 단위로 안전하게 수신
+                            content = b"".join(r.iter_content(chunk_size=CHUNK_1MB))
+                        break
+                    except Exception as e:
+                        if attempt == 2:
+                            print(f"[ERROR] GET 실패(최종): {url} -> {e}")
+                            raise
+                        print(f"[WARN] GET 실패({attempt+1}/3): {e}; 잠시 후 재시도")
+                        _sleep_backoff(attempt + 1)
 
-                # 2. Gzip 압축 해제
-                decompressed_content = gzip.decompress(content)
+                if not content:
+                    # 404 등으로 스킵
+                    continue
 
-                # TSV 원본을 문자열로 변환
+                # 2) Gzip 해제(깨진 파일 방어)
+                try:
+                    decompressed_content = gzip.decompress(content)
+                except gzip.BadGzipFile as e:
+                    print(f"[WARN] gzip 해제 실패(스킵): {url} -> {e}")
+                    continue
 
-                # -- 추가 코드 --
+                # 3) TSV -> CSV (안전 변환)
                 try:
                     decoded_str = decompressed_content.decode("utf-8-sig")
                 except UnicodeDecodeError:
                     decoded_str = decompressed_content.decode("cp949", errors="replace")
-
                 decoded_str = decoded_str.replace("\x00", "")
-                # --- TSV to CSV 변환 (가장 안전한 방식) ---
-                # 메모리상에서 파일처럼 다루기 위해 io.StringIO 사용
+
                 tsv_file = io.StringIO(decoded_str)
                 csv_file = io.StringIO()
-
-                # TSV 리더(Reader)에게 입력 구분자가 탭('\t')임을 명시
                 tsv_reader = csv.reader(tsv_file, delimiter="\t")
-
-                # CSV 라이터(Writer)를 사용하여 새 CSV 내용 생성
-                # 이 과정에서 라이브러리가 자동으로 따옴표 처리 등을 수행
                 csv_writer = csv.writer(csv_file, quoting=csv.QUOTE_MINIMAL)
                 csv_writer.writerows(tsv_reader)
 
-                # 메모리에 생성된 최종 CSV 문자열 가져오기
-                csv_content_str = csv_file.getvalue()
+                csv_bytes = csv_file.getvalue().encode("utf-8-sig")
+                gz_chunk = gzip.compress(csv_bytes)  # 한 파일 단위로 gzip 멤버 생성
 
-                # 3. CSV로 변환된 내용을 다시 Gzip으로 압축
-                csv_content_bytes = csv_content_str.encode("utf-8-sig")
-                final_part_body = gzip.compress(csv_content_bytes)
+                buffer += gz_chunk
+                # 5MB 이상이면 잘라서 업로드(마지막 파트 제외 규칙 충족)
+                while len(buffer) >= MIN_PART:
+                    to_upload = bytes(buffer[:MIN_PART])
+                    del buffer[:MIN_PART]
+                    part = s3_client.upload_part(
+                        Bucket=S3_BUCKET,
+                        Key=s3_key,
+                        PartNumber=part_number,
+                        UploadId=upload_id,
+                        Body=to_upload,
+                    )
+                    parts.append({"PartNumber": part_number, "ETag": part["ETag"]})
+                    part_number += 1
 
-                # 4. S3에 멀티파트 업로드
+            # 남은 버퍼는 마지막 파트로 업로드(5MB 미만도 허용)
+            if buffer:
                 part = s3_client.upload_part(
                     Bucket=S3_BUCKET,
                     Key=s3_key,
                     PartNumber=part_number,
                     UploadId=upload_id,
-                    Body=final_part_body,
+                    Body=bytes(buffer),
                 )
                 parts.append({"PartNumber": part_number, "ETag": part["ETag"]})
 
-            # 5. 모든 파트 업로드 완료 후 최종 파일 조립
+            # 파트가 하나도 없으면 멀티파트 완료 불가 → abort
+            if not parts:
+                raise RuntimeError(
+                    "업로드할 유효 파트가 없어 멀티파트를 완료할 수 없습니다."
+                )
+
             print(f"{market_name}의 모든 파트 업로드 완료. 최종 파일을 조립합니다...")
             s3_client.complete_multipart_upload(
                 Bucket=S3_BUCKET,
@@ -103,9 +151,14 @@ def gmarket_general_feeds_dag_sequential():
 
         except Exception as e:
             print(f"{market_name} 처리 중 오류 발생: {e}")
-            s3_client.abort_multipart_upload(
-                Bucket=S3_BUCKET, Key=s3_key, UploadId=upload_id
-            )
+            # 업로드 세션이 열려있다면 abort 시도
+            try:
+                if upload_id:
+                    s3_client.abort_multipart_upload(
+                        Bucket=S3_BUCKET, Key=s3_key, UploadId=upload_id
+                    )
+            except Exception as abort_err:
+                print(f"[WARN] abort 실패 무시: {abort_err}")
             raise
 
     @task
