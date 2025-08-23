@@ -30,6 +30,10 @@ spec:
           env:
             - name: AIRFLOW__CORE__EXECUTOR
               value: {{ .Values.config.executor | quote }}
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_PRE_PING
+              value: "true"
           envFrom:
             - configMapRef:
                 name: airflow-{{ .Values.appName }}-config
@@ -92,12 +96,22 @@ spec:
           imagePullPolicy: {{ .Values.airflow.imagePullPolicy }}
           env:
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "{{ .Values.postgresql.conn }}/airflow-{{ .Values.appName }}"
+              value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
+
           command: ['/bin/bash', '-c']
           args:
-            - until [ -n "`psql $AIRFLOW__DATABASE__SQL_ALCHEMY_CONN -l`" ]; do echo "Waiting"; sleep 10; done;
-              airflow db init;
-              airflow users create --username admin --firstname admin --lastname admin --role Admin --email djdjdjk2006@naver.com --password admin
+            - |
+              # Postgres 준비 대기 (pg_isready 없으면 psql로 대기)
+              if command -v pg_isready >/dev/null 2>&1; then
+                until pg_isready -h airflow-postgres -p 5432 -U airflow -d airflow-{{ .Values.appName }}; do
+                  echo "Waiting for Postgres..."; sleep 3;
+                done
+              else
+                until PGPASSWORD='{{ .Values.postgresql.password }}' psql -h airflow-postgres -p 5432 -U airflow -d airflow-{{ .Values.appName }} -c '\q' >/dev/null 2>&1; do
+                  echo "Waiting for Postgres..."; sleep 3;
+                done
+              fi
+              airflow db upgrade || airflow db init;
           volumeMounts:
             - name: airflow-pvc
               mountPath: /airflow
@@ -109,6 +123,13 @@ spec:
           env:
             - name: AIRFLOW__CORE__EXECUTOR
               value: {{ .Values.config.executor | quote }}
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_PRE_PING
+              value: "true"
+            - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+              value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
+
           envFrom:
             - configMapRef:
                 name: airflow-{{ .Values.appName }}-config
