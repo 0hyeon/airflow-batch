@@ -21,3 +21,4 @@ config:
 
 postgresql:
   conn: postgresql://airflow:airflow@airflow-postgres:5432
+  password: airflow
