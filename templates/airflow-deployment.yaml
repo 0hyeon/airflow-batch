@@ -95,28 +95,31 @@ spec:
           image: {{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}
           imagePullPolicy: {{ .Values.airflow.imagePullPolicy }}
           env:
+            - name: PGPASSWORD
+              value: "{{ .Values.postgresql.password | default "airflow" }}"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
+              value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password | default "airflow" }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_PRE_PING
               value: "true"
-          command: ['/bin/bash', '-c']
-          args: |
-            if command -v pg_isready >/dev/null 2>&1; then
-              until pg_isready -h airflow-postgres -p 5432 -U airflow -d postgres; do
-                echo "Waiting for Postgres..."; sleep 3;
-              done
-            else
-              until PGPASSWORD='{{ .Values.postgresql.password }}' \
-                psql -h airflow-postgres -p 5432 -U airflow -d postgres -c '\q' >/dev/null 2>&1; do
-                echo "Waiting for Postgres..."; sleep 3;
-              done
-            fi
-            PGPASSWORD='{{ .Values.postgresql.password }}' \
-              psql -h airflow-postgres -U airflow -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='airflow-{{ .Values.appName }}'" | grep -q 1 \
-              || PGPASSWORD='{{ .Values.postgresql.password }}' \
-                psql -h airflow-postgres -U airflow -d postgres -c 'CREATE DATABASE "airflow-{{ .Values.appName }}"'
+          command: ["/bin/bash","-c"]
+          args:
+            - |
+              set -e
+              if command -v pg_isready >/dev/null 2>&1; then
+                until pg_isready -h airflow-postgres -p 5432 -U airflow -d postgres; do
+                  echo "Waiting for Postgres..."; sleep 3;
+                done
+              else
+                until psql -h airflow-postgres -p 5432 -U airflow -d postgres -c '\q' >/dev/null 2>&1; do
+                  echo "Waiting for Postgres..."; sleep 3;
+                done
+              fi
 
-            airflow db upgrade || airflow db init
+              psql -h airflow-postgres -U airflow -d postgres -tc \
+                "SELECT 1 FROM pg_database WHERE datname='airflow-{{ .Values.appName }}'" | grep -q 1 \
+                || psql -h airflow-postgres -U airflow -d postgres -c 'CREATE DATABASE "airflow-{{ .Values.appName }}"'
+
+              airflow db upgrade || airflow db init
           volumeMounts:
             - name: airflow-pvc
               mountPath: /airflow
