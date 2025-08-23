@@ -33,38 +33,58 @@ jobs:
         run: |
           kubectl rollout status statefulset/nfs-server --timeout=120s
 
-      - name: create pg db
+      - name: create pg db (apply & wait)
         run: |
           set -eux
           cd airflow/lecture_2
-          cat job/db-create.yaml | sed -r "s:BRANCH:${REF_NAME}:g" | kubectl apply -f -
+          # BRANCH 토큰을 브랜치명으로 치환 후 적용
+          sed -r "s:BRANCH:${REF_NAME}:g" job/db-create.yaml | kubectl apply -f -
+          # Job 완료 대기 (라벨 우선, 실패시 흔한 이름 패턴으로 폴백)
+          if kubectl get jobs -l app=airflow,component=pg-create,branch=${REF_NAME} >/dev/null 2>&1; then
+            kubectl wait --for=condition=complete --timeout=300s job -l app=airflow,component=pg-create,branch=${REF_NAME}
+          else
+            kubectl wait --for=condition=complete --timeout=300s job/airflow-pg-create-${REF_NAME} || \
+            kubectl wait --for=condition=complete --timeout=300s job/airflow-pg-create || true
+          fi
 
       - name: sync dags to nfs (direct & robust)
         run: |
           set -euo pipefail
           shopt -s dotglob nullglob
-          # 대상 디렉토리 준비 + 권한
           kubectl exec -i nfs-server-0 -- bash -lc \
             "mkdir -p /nfs-data/airflow/airflow-${REF_NAME}/dags && chmod -R 0777 /nfs-data/airflow/airflow-${REF_NAME}"
-          # 소스→NFS 서버로 스트리밍 복사 (잡파일 제외)
           tar --exclude='.git' --exclude='*.pyc' --exclude='__pycache__' \
               -C airflow/lecture_2/dags -cf - . \
             | kubectl exec -i nfs-server-0 -- tar -C /nfs-data/airflow/airflow-${REF_NAME}/dags -xf -
-          # 확인
           kubectl exec -i nfs-server-0 -- ls -al /nfs-data/airflow/airflow-${REF_NAME}/dags | head
 
-      - name: create airflow (helm upgrade --install)
+      - name: deploy airflow (helm upgrade --install)
         run: |
           set -eux
           cd airflow
-          echo "Using REF_NAME=${{ env.REF_NAME }}"
-          helm upgrade --install airflow-${{ env.REF_NAME }} ./ \
-            --set appName=${{ env.REF_NAME }} \
-            --wait --timeout 5m
+          echo "Using REF_NAME=${REF_NAME}"
+          helm upgrade --install airflow-${REF_NAME} ./ \
+            --set appName=${REF_NAME} \
+            --set postgresql.password=airflow \
+            --wait --timeout 15m --atomic
 
-      - name: show airflow ip
+      - name: show airflow ip (after deploy)
         run: |
           kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress" || true
+
+      - name: debug on failure
+        if: failure()
+        run: |
+          set -eux
+          kubectl get sts airflow-${REF_NAME}-scheduler -o wide || true
+          kubectl get po -l deploy=airflow-${REF_NAME}-scheduler -o wide || true
+          POD=$(kubectl get po -l deploy=airflow-${REF_NAME}-scheduler -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -n "${POD:-}" ]; then
+            kubectl describe po "$POD" || true
+            kubectl logs "$POD" -c init-db --tail=200 || true
+            kubectl logs "$POD" -c airflow-scheduler --tail=200 || true
+            kubectl get sts airflow-${REF_NAME}-scheduler -o jsonpath='{.spec.template.spec.initContainers[0].args}{"\n"}{.spec.template.spec.initContainers[0].env}{"\n"}' || true
+          fi
 
   onpushed:
     if: ${{ github.event.created == false }}
@@ -107,15 +127,30 @@ jobs:
             | kubectl exec -i nfs-server-0 -- tar -C /nfs-data/airflow/airflow-${REF_NAME}/dags -xf -
           kubectl exec -i nfs-server-0 -- ls -al /nfs-data/airflow/airflow-${REF_NAME}/dags | head
 
-      - name: show airflow ip
-        run: |
-          kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress" || true
-
       - name: deploy airflow (helm upgrade --install)
         run: |
           set -eux
           cd airflow
-          echo "Using REF_NAME=${{ env.REF_NAME }}"
-          helm upgrade --install airflow-${{ env.REF_NAME }} ./ \
-            --set appName=${{ env.REF_NAME }} \
-            --wait --timeout 5m
+          echo "Using REF_NAME=${REF_NAME}"
+          helm upgrade --install airflow-${REF_NAME} ./ \
+            --set appName=${REF_NAME} \
+            --set postgresql.password=airflow \
+            --wait --timeout 15m --atomic
+
+      - name: show airflow ip (after deploy)
+        run: |
+          kubectl describe svc airflow-${REF_NAME} | grep "LoadBalancer Ingress" || true
+
+      - name: debug on failure
+        if: failure()
+        run: |
+          set -eux
+          kubectl get sts airflow-${REF_NAME}-scheduler -o wide || true
+          kubectl get po -l deploy=airflow-${REF_NAME}-scheduler -o wide || true
+          POD=$(kubectl get po -l deploy=airflow-${REF_NAME}-scheduler -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -n "${POD:-}" ]; then
+            kubectl describe po "$POD" || true
+            kubectl logs "$POD" -c init-db --tail=200 || true
+            kubectl logs "$POD" -c airflow-scheduler --tail=200 || true
+            kubectl get sts airflow-${REF_NAME}-scheduler -o jsonpath='{.spec.template.spec.initContainers[0].args}{"\n"}{.spec.template.spec.initContainers[0].env}{"\n"}' || true
+          fi
