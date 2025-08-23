@@ -97,21 +97,26 @@ spec:
           env:
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
               value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
-
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_PRE_PING
+              value: "true"
           command: ['/bin/bash', '-c']
-          args:
-            - |
-              # Postgres 준비 대기 (pg_isready 없으면 psql로 대기)
-              if command -v pg_isready >/dev/null 2>&1; then
-                until pg_isready -h airflow-postgres -p 5432 -U airflow -d airflow-{{ .Values.appName }}; do
-                  echo "Waiting for Postgres..."; sleep 3;
-                done
-              else
-                until PGPASSWORD='{{ .Values.postgresql.password }}' psql -h airflow-postgres -p 5432 -U airflow -d airflow-{{ .Values.appName }} -c '\q' >/dev/null 2>&1; do
-                  echo "Waiting for Postgres..."; sleep 3;
-                done
-              fi
-              airflow db upgrade || airflow db init;
+          args: |
+            if command -v pg_isready >/dev/null 2>&1; then
+              until pg_isready -h airflow-postgres -p 5432 -U airflow -d postgres; do
+                echo "Waiting for Postgres..."; sleep 3;
+              done
+            else
+              until PGPASSWORD='{{ .Values.postgresql.password }}' \
+                psql -h airflow-postgres -p 5432 -U airflow -d postgres -c '\q' >/dev/null 2>&1; do
+                echo "Waiting for Postgres..."; sleep 3;
+              done
+            fi
+            PGPASSWORD='{{ .Values.postgresql.password }}' \
+              psql -h airflow-postgres -U airflow -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='airflow-{{ .Values.appName }}'" | grep -q 1 \
+              || PGPASSWORD='{{ .Values.postgresql.password }}' \
+                psql -h airflow-postgres -U airflow -d postgres -c 'CREATE DATABASE "airflow-{{ .Values.appName }}"'
+
+            airflow db upgrade || airflow db init
           volumeMounts:
             - name: airflow-pvc
               mountPath: /airflow
