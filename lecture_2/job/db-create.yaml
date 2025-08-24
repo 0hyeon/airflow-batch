@@ -1,26 +1,35 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: airflow-db-init-{{ .Values.appName }}
+  name: airflow-pg-create-BRANCH
+  labels:
+    app: airflow
+    component: pg-create
+    branch: BRANCH
 spec:
   backoffLimit: 1
   ttlSecondsAfterFinished: 60
   template:
+    metadata:
+      labels:
+        app: airflow
+        component: pg-create
+        branch: BRANCH
     spec:
       restartPolicy: Never
       containers:
-        - name: airflow-db-init
-          image: "{{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}"
+        - name: airflow-pg-create
+          image: postgres:15-alpine
           env:
-            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
-          command: ["/bin/bash","-c"]
+            - name: PGPASSWORD
+              value: airflow
+          command: ["/bin/sh","-lc"]
           args:
             - |
               set -e
-              # 대상 DB 응답 대기
-              until psql -h airflow-postgres -p 5432 -U airflow -d "airflow-{{ .Values.appName }}" -c '\q' >/dev/null 2>&1; do
-                echo "Waiting for target DB (airflow-{{ .Values.appName }})..."; sleep 3;
+              until pg_isready -h airflow-postgres -p 5432 -U airflow -d postgres; do
+                echo "Waiting for Postgres..."; sleep 2;
               done
-              airflow db init || true
-              airflow db upgrade
+              psql -h airflow-postgres -U airflow -d postgres -tAc \
+                "SELECT 1 FROM pg_database WHERE datname='airflow-BRANCH'" | grep -q 1 \
+                || createdb -h airflow-postgres -p 5432 -U airflow "airflow-BRANCH"
