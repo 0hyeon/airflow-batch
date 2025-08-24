@@ -104,21 +104,27 @@ spec:
           args:
             - |
               set -e
-              if command -v pg_isready >/dev/null 2>&1; then
-                until pg_isready -h airflow-postgres -p 5432 -U airflow -d postgres; do
-                  echo "Waiting for Postgres..."; sleep 3;
-                done
-              else
-                until psql -h airflow-postgres -p 5432 -U airflow -d postgres -c '\q' >/dev/null 2>&1; do
-                  echo "Waiting for Postgres..."; sleep 3;
-                done
-              fi
 
+              # 1) Postgres 서버가 응답할 때까지 대기 (postgres DB 기준)
+              until psql -h airflow-postgres -p 5432 -U airflow -d postgres -c '\q' >/dev/null 2>&1; do
+                echo "Waiting for Postgres (postgres db)..."; sleep 3;
+              done
+
+              # 2) 대상 메타데이터 DB가 없으면 생성 (airflow-{{ .Values.appName }})
               psql -h airflow-postgres -U airflow -d postgres -tc \
                 "SELECT 1 FROM pg_database WHERE datname='airflow-{{ .Values.appName }}'" | grep -q 1 \
                 || psql -h airflow-postgres -U airflow -d postgres -c 'CREATE DATABASE "airflow-{{ .Values.appName }}"'
 
-              airflow db upgrade || airflow db init
+              # 3) 이제 '대상 DB' 자체가 응답할 때까지 대기
+              until psql -h airflow-postgres -p 5432 -U airflow -d "airflow-{{ .Values.appName }}" -c '\q' >/dev/null 2>&1; do
+                echo "Waiting for target DB (airflow-{{ .Values.appName }})..."; sleep 3;
+              done
+
+              # 4) Airflow 메타데이터 초기화/업그레이드 (대상 DB로)
+              export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="postgresql+psycopg2://airflow:{{ .Values.postgresql.password | default "airflow" }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
+              airflow db init || true
+              airflow db upgrade
+
           volumeMounts:
             - name: airflow-pvc
               mountPath: /airflow
