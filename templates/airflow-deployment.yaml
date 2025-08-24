@@ -53,9 +53,8 @@ spec:
             - name: airflow-templates
               mountPath: /opt/airflow/webserver_config.py
               subPath: airflow-web-config-template.py
-          command: ['/bin/bash', '-c']
-          args:
-            - airflow webserver;
+          command: ["airflow"]
+          args: ["webserver", "--port", "{{ .Values.airflow.port }}"]
       restartPolicy: Always
       volumes:
         - name: airflow-pvc
@@ -135,9 +134,6 @@ spec:
               value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_PRE_PING
               value: "true"
-            - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
-              value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
-
           envFrom:
             - configMapRef:
                 name: airflow-{{ .Values.appName }}-config
@@ -157,9 +153,8 @@ spec:
             - name: airflow-templates
               mountPath: /airflow-pod.yaml
               subPath: airflow-pod.yaml
-          command: ['/bin/bash', '-c']
-          args:
-            - airflow scheduler;
+          command: ["airflow"]
+          args: ["scheduler"]
       restartPolicy: Always
       volumes:
         - name: airflow-pvc
