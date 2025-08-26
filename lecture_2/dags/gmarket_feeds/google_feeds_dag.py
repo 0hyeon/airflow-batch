@@ -37,43 +37,34 @@ BASES = {
 
 # ▶ 이 DAG만 경량 파드/안티어피니티 완화로 오버라이드
 EXECUTOR_CONFIG_LITE = {
-    "KubernetesExecutor": {
-        # 전역 anti-affinity가 app=airflow-task 기준이어서, 라벨을 바꿔 회피
-        "pod_override": {
-            "metadata": {"labels": {"app": "airflow-task-lite"}},
-            "spec": {
-                # 같은 노드 공존 허용 (required → preferred)
-                "affinity": {
-                    "podAntiAffinity": {
-                        "preferredDuringSchedulingIgnoredDuringExecution": [
-                            {
-                                "weight": 50,
-                                "podAffinityTerm": {
-                                    "labelSelector": {
-                                        "matchLabels": {"app": "airflow-task-lite"}
-                                    },
-                                    "topologyKey": "kubernetes.io/hostname",
+    "pod_override": {
+        "metadata": {"labels": {"app": "airflow-task-lite"}},
+        "spec": {
+            "affinity": {
+                "podAntiAffinity": {
+                    "preferredDuringSchedulingIgnoredDuringExecution": [
+                        {
+                            "weight": 50,
+                            "podAffinityTerm": {
+                                "labelSelector": {
+                                    "matchLabels": {"app": "airflow-task-lite"}
                                 },
-                            }
-                        ]
-                    }
-                },
-                "containers": [
-                    {
-                        "name": "base",  # 템플릿 컨테이너명과 같아야 함
-                        "resources": {
-                            "requests": {"cpu": "100m", "memory": "256Mi"},
-                            "limits": {"cpu": "500m", "memory": "512Mi"},
-                        },
-                    }
-                ],
+                                "topologyKey": "kubernetes.io/hostname",
+                            },
+                        }
+                    ]
+                }
             },
+            "containers": [
+                {
+                    "name": "base",  # pod_template_file 안 컨테이너명과 동일해야 적용
+                    "resources": {
+                        "requests": {"cpu": "100m", "memory": "256Mi"},
+                        "limits": {"cpu": "500m", "memory": "512Mi"},
+                    },
+                }
+            ],
         },
-        # 리소스도 경량으로 (네트워크 I/O 위주 워크로드에 충분)
-        "request_cpu": "100m",
-        "request_memory": "256Mi",
-        "limit_cpu": "500m",
-        "limit_memory": "512Mi",
     }
 }
 
@@ -226,6 +217,7 @@ def pipeline():
         upload_one_to_s3.partial(target_info=ti)
         .override(
             pool=S3_POOL,
+            queue="kubernetes",
             priority_weight=1,
             executor_config=EXECUTOR_CONFIG_LITE,
         )
