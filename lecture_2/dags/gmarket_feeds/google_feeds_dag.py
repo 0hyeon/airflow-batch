@@ -32,7 +32,7 @@ REQUEST_TIMEOUT_SEC = 300
 
 BASES = {
     "gmarket": "https://im-ep.gmarket.co.kr",
-    # "auction": "https://im-ep.auction.co.kr",
+    "auction": "https://im-ep.auction.co.kr",
 }
 
 # ▶ 이 DAG만 경량 파드/안티어피니티 완화로 오버라이드
@@ -57,7 +57,16 @@ EXECUTOR_CONFIG_LITE = {
                             }
                         ]
                     }
-                }
+                },
+                "containers": [
+                    {
+                        "name": "base",  # 템플릿 컨테이너명과 같아야 함
+                        "resources": {
+                            "requests": {"cpu": "100m", "memory": "256Mi"},
+                            "limits": {"cpu": "500m", "memory": "512Mi"},
+                        },
+                    }
+                ],
             },
         },
         # 리소스도 경량으로 (네트워크 I/O 위주 워크로드에 충분)
