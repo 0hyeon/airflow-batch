@@ -101,6 +101,7 @@ def decide_target_info(now_kst: pendulum.DateTime) -> dict:
     default_args={
         "retries": 3,
         "retry_delay": timedelta(minutes=2),
+        "queue": "kubernetes",  # ← 모든 태스크 기본 큐
     },
     # 이 DAG만 여유 있게 동시 태스크 허용 (Pool로 실제 동시성 제어)
     max_active_tasks=200,
@@ -217,7 +218,6 @@ def pipeline():
         upload_one_to_s3.partial(target_info=ti)
         .override(
             pool=S3_POOL,
-            queue="kubernetes",
             priority_weight=1,
             executor_config=EXECUTOR_CONFIG_LITE,
         )
