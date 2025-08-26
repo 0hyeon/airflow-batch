@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airflow-{{ .Values.appName }}-user-create
+  labels:
+    app: airflow
+    component: user-create
+    branch: {{ .Values.appName | lower }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "50"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 120
+  template:
+    metadata:
+      labels:
+        app: airflow
+        component: user-create
+        branch: {{ .Values.appName | lower }}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: user-create
+        image: "{{ .Values.airflow.image }}:{{ .Values.airflow.imageTag }}"
+        command: ["/bin/sh","-lc"]
+        env:
+        - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+          value: "postgresql+psycopg2://airflow:{{ .Values.postgresql.password | default "airflow" }}@airflow-postgres:5432/airflow-{{ .Values.appName }}"
+        - name: ADMIN_USERNAME
+          value: "{{ .Values.adminUser.username | default "airflow" }}"
+        - name: ADMIN_PASSWORD
+          value: "{{ .Values.adminUser.password | default "airflow" }}"
+        - name: ADMIN_FIRSTNAME
+          value: "{{ .Values.adminUser.firstname | default "Admin" }}"
+        - name: ADMIN_LASTNAME
+          value: "{{ .Values.adminUser.lastname | default "User" }}"
+        - name: ADMIN_EMAIL
+          value: "{{ .Values.adminUser.email | default "admin@example.com" }}"
+        args:
+        - |
+          set -e
+          # DB가 살아날 때까지 대기
+          until psql "${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}" -c '\q' >/dev/null 2>&1; do
+            echo "Waiting for Airflow metadata DB..."; sleep 3;
+          done
+          # 스키마 보장 (신규/기존 상관없이)
+          airflow db migrate || airflow db init
+          # 유저가 있으면 업데이트, 없으면 생성 (idempotent)
+          if airflow users list | awk -v u="${ADMIN_USERNAME}" '$1==u{found=1} END{exit(!found)}'; then
+            echo "User ${ADMIN_USERNAME} exists. Updating..."
+            airflow users update --username "${ADMIN_USERNAME}" \
+              --password "${ADMIN_PASSWORD}" \
+              --firstname "${ADMIN_FIRSTNAME}" \
+              --lastname "${ADMIN_LASTNAME}" \
+              --email "${ADMIN_EMAIL}"
+          else
+            echo "Creating user ${ADMIN_USERNAME}..."
+            airflow users create \
+              --username "${ADMIN_USERNAME}" \
+              --password "${ADMIN_PASSWORD}" \
+              --firstname "${ADMIN_FIRSTNAME}" \
+              --lastname "${ADMIN_LASTNAME}" \
+              --role Admin \
+              --email "${ADMIN_EMAIL}"
+          fi
