@@ -158,8 +158,6 @@ def pipeline():
 
     @task(retries=3, retry_delay=timedelta(minutes=2))
     def upload_one_to_s3(url: str, target_info: dict) -> str:
-        from airflow.providers.sftp.hooks.sftp import SFTPHook
-
         """
         단일 .gz를 S3에 업로드 (스트리밍 업로드: 메모리 사용 최소화)
         - 404면 skip 반환
@@ -203,6 +201,8 @@ def pipeline():
 
     @task(retries=3, retry_delay=timedelta(minutes=2))
     def upload_one_to_sftp(url: str) -> str:
+        from airflow.providers.sftp.hooks.sftp import SFTPHook
+
         """
         (옵션) 단일 .gz를 SFTP에 업로드
         - S3 완료 이후 시작(배리어 뒤)
