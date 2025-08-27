@@ -39,36 +39,36 @@ BASES = {
 # ▶ 이 DAG만 경량 파드/안티어피니티 완화로 오버라이드
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_override": k8s.V1Pod(
-            metadata=k8s.V1ObjectMeta(labels={"app": "airflow-task-lite"}),
-            spec=k8s.V1PodSpec(
-                affinity=k8s.V1Affinity(
-                    pod_anti_affinity=k8s.V1PodAntiAffinity(
-                        preferred_during_scheduling_ignored_during_execution=[
-                            k8s.V1WeightedPodAffinityTerm(
-                                weight=50,
-                                pod_affinity_term=k8s.V1PodAffinityTerm(
-                                    label_selector=k8s.V1LabelSelector(
-                                        match_labels={"app": "airflow-task-lite"}
-                                    ),
-                                    topology_key="kubernetes.io/hostname",
-                                ),
-                            )
+        "pod_override": {
+            "metadata": {"labels": {"app": "airflow-task-lite"}},
+            "spec": {
+                "restartPolicy": "Never",
+                "affinity": {
+                    "podAntiAffinity": {
+                        "preferredDuringSchedulingIgnoredDuringExecution": [
+                            {
+                                "weight": 50,
+                                "podAffinityTerm": {
+                                    "labelSelector": {
+                                        "matchLabels": {"app": "airflow-task-lite"}
+                                    },
+                                    "topologyKey": "kubernetes.io/hostname",
+                                },
+                            }
                         ]
-                    )
-                ),
-                containers=[
-                    k8s.V1Container(
-                        name="base",
-                        resources=k8s.V1ResourceRequirements(
-                            requests={"cpu": "100m", "memory": "256Mi"},
-                            limits={"cpu": "500m", "memory": "512Mi"},
-                        ),
-                    )
+                    }
+                },
+                "containers": [
+                    {
+                        "name": "base",
+                        "resources": {
+                            "requests": {"cpu": "100m", "memory": "256Mi"},
+                            "limits": {"cpu": "500m", "memory": "512Mi"},
+                        },
+                    }
                 ],
-                restart_policy="Never",
-            ),
-        )
+            },
+        }
     }
 }
 
@@ -215,10 +215,8 @@ def pipeline():
 
     # ----- DAG 흐름 -----
     ti = get_target_info.override(executor_config=EXECUTOR_CONFIG_LITE)()
-
     urls = build_urls.override(executor_config=EXECUTOR_CONFIG_LITE)(ti)
 
-    # 1) S3 병렬 업로드 (이 DAG만 경량 파드/안티어피니티 완화)
     s3_results = (
         upload_one_to_s3.partial(target_info=ti)
         .override(pool=S3_POOL, priority_weight=1, executor_config=EXECUTOR_CONFIG_LITE)
