@@ -1,48 +1,54 @@
 # -*- coding: utf-8 -*-
 """
 feed_emr_multi_cluster_pipeline.py
-- 100개 파일을 8개 샤드로 나눠 '여러 개'의 EMR 클러스터를 병렬 실행
-- 각 클러스터는 Spark step 완료 후 자동 종료
-- Spark 스크립트: s3://{CODE_BUCKET}/scripts/feeds_transform_sharded.py
+- 100개 URL을 병렬로 받아 S3에 업로드(스트리밍)
+- 8개 샤드로 나눠 '여러 개'의 EMR 클러스터에서 Spark 처리 (샤드 개수 조절 가능)
+- 마지막에 단일 EMR로 '전역 40만 cap & publish' 실행(.tsv.gz 확장자까지 보장)
 """
 
-from datetime import timedelta
 import math
-import boto3
 import pendulum
+from datetime import timedelta
 
 from airflow import DAG
 from airflow.decorators import task
 from airflow.models import Variable
+
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 from airflow.providers.amazon.aws.sensors.emr import EmrJobFlowSensor, EmrStepSensor
 from airflow.providers.amazon.aws.operators.emr import EmrTerminateJobFlowOperator
 
-# ===== 환경값 =====
+# ========= 환경 =========
 AWS_CONN_ID = "aws_conn_id"
 REGION = Variable.get("AWS_DEFAULT_REGION", default_var="ap-northeast-2")
 
-S3_BUCKET = "gyoung0-test"  # 원본/로그 버킷(예시)
-CODE_BUCKET = "gyoung0-test"  # PySpark 스크립트 저장 버킷
-OUTPUT_BUCKET = "gyoung0-test"  # 결과 저장 버킷
+S3_BUCKET = "gyoung0-test"  # 원본/로그 버킷
+CODE_BUCKET = "gyoung0-test"  # Spark 스크립트 저장 버킷
+OUTPUT_BUCKET = "gyoung0-test"  # 처리 결과 버킷
 
-# 입력 위치: s3://{S3_BUCKET}/feeds/google/{MARKET}/feed_00000.tsv.gz ...
-INPUT_PREFIX = "feeds/google"
-MARKET = "gmarket"  # 필요하면 동적으로 바꾸세요
-
-# PySpark 스크립트 경로
+MARKET = "gmarket"  # 필요 시 'auction' 등 동적 선택 가능
+INPUT_PREFIX = f"feeds/google/{MARKET}"  # s3://{S3_BUCKET}/feeds/google/gmarket/
+SHARD_BASE = f"feeds/{MARKET}/shards"  # s3://{OUTPUT_BUCKET}/feeds/gmarket/shards/
+FINAL_BASE = f"feeds/{MARKET}/final"  # s3://{OUTPUT_BUCKET}/feeds/gmarket/final/
 SPARK_SCRIPT_S3 = f"s3://{CODE_BUCKET}/scripts/feeds_transform_sharded.py"
+
+# 원본 URL(예시 경로) — 실제 YYYYMMDD/HHMM 규칙에 맞춰 build_urls()에서 생성
+BASES = {
+    "gmarket": "https://im-ep.gmarket.co.kr",
+    "auction": "https://im-ep.auction.co.kr",
+}
 
 # EMR 설정
 EMR_RELEASE = "emr-6.15.0"
 MASTER_INSTANCE = "m6i.xlarge"
 CORE_INSTANCE = "m6i.2xlarge"
-CORE_COUNT = 4  # 필요 시 4→6으로 점진 상향 권장
+CORE_COUNT = 4
 EMR_KEY_NAME = Variable.get("EMR_KEY_NAME", default_var="test")
 EMR_EC2_ROLE = Variable.get("EMR_EC2_ROLE", default_var="EMR_EC2_DefaultRole")
 EMR_SERVICE_ROLE = Variable.get("EMR_SERVICE_ROLE", default_var="EMR_DefaultRole")
 
-# Iceberg/Glue 카탈로그가 필요 없으면 ICEBERG_CONF를 제거하세요.
+# 필요 없으면 ICEBERG_CONF 제거
 ICEBERG_CONF = [
     "--conf",
     "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
@@ -72,9 +78,15 @@ dag = DAG(
 )
 
 
-# ---------- 유틸: 100개를 N개 샤드로 균등 분할 ----------
+# ---------- 유틸 ----------
+def _emr_client():
+    return AwsBaseHook(aws_conn_id=AWS_CONN_ID, client_type="emr").get_client_type(
+        "emr", region_name=REGION
+    )
+
+
 def build_shards(total_files: int = 100, num_shards: int = 8):
-    size = math.ceil(total_files / num_shards)  # 100/8 = 13
+    size = math.ceil(total_files / num_shards)  # 100/8=13
     shards = []
     start = 0
     for i in range(num_shards):
@@ -86,24 +98,78 @@ def build_shards(total_files: int = 100, num_shards: int = 8):
     return shards
 
 
-SHARDS = build_shards(100, 8)  # ← 여기서 샤드 수 변경 가능
+SHARDS = build_shards(100, 8)
 
 
-# ---------- 0. 사전 체크 ----------
-@task(dag=dag)
-def check_s3_inputs():
-    hook = S3Hook(aws_conn_id=AWS_CONN_ID)
-    # 샘플 파일 1개만 확인 (원하면 전체 목록 점검 로직으로 확장)
-    key = f"{INPUT_PREFIX}/{MARKET}/feed_00000.tsv.gz"
-    if not hook.check_for_key(key, bucket_name=S3_BUCKET):
-        raise FileNotFoundError(f"Missing: s3://{S3_BUCKET}/{key}")
-    return True
+# ---------- 0) 100개 URL 생성 ----------
+@task
+def build_urls() -> list[str]:
+    # 실제 경로 규칙으로 수정: YYYYMMDD/HHMM
+    base = BASES[MARKET]
+    date = "00000000"  # 예시
+    hhmm = "0000"  # 예시
+    return [f"{base}/google/{date}/{hhmm}/feed_{i:05d}.tsv.gz" for i in range(100)]
 
 
-# ---------- 1. 샤드별 EMR 클러스터 생성 ----------
-@task(dag=dag)
+# ---------- 1) 업로드(병렬) ----------
+@task(retries=3, retry_delay=timedelta(minutes=2))
+def upload_one_to_s3(url: str) -> str:
+    import requests, boto3
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    from boto3.s3.transfer import TransferConfig
+    from botocore.config import Config
+
+    filename = url.split("/")[-1]  # feed_00000.tsv.gz
+    s3_key = f"{INPUT_PREFIX}/{filename}"  # feeds/google/gmarket/feed_00000.tsv.gz
+
+    sess = requests.Session()
+    retry = Retry(
+        total=5,
+        connect=5,
+        read=5,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "HEAD"],
+    )
+    adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=retry)
+    sess.mount("http://", adapter)
+    sess.mount("https://", adapter)
+
+    # 빠른 404 체크
+    h = sess.head(url, timeout=30)
+    if h.status_code == 404:
+        return f"skip-404:{filename}"
+    h.raise_for_status()
+
+    s3_client = boto3.client("s3", region_name=REGION, config=Config())
+    tcfg = TransferConfig(
+        multipart_threshold=8 * 1024 * 1024,
+        multipart_chunksize=8 * 1024 * 1024,
+        max_concurrency=10,
+        use_threads=True,
+    )
+
+    with sess.get(url, stream=True, timeout=300) as r:
+        r.raise_for_status()
+        r.raw.decode_content = True
+        s3_client.upload_fileobj(
+            Fileobj=r.raw,
+            Bucket=S3_BUCKET,
+            Key=s3_key,
+            Config=tcfg,
+            ExtraArgs={
+                "ContentType": "text/tab-separated-values",
+                "ContentEncoding": "gzip",
+            },
+        )
+    return f"s3://{S3_BUCKET}/{s3_key}"
+
+
+# ---------- 2) 샤드별 EMR 생성 ----------
+@task
 def create_emr_for_shard(shard: dict) -> str:
-    client = boto3.client("emr", region_name=REGION)
+    client = _emr_client()
     resp = client.run_job_flow(
         Name=f"feeds-emr-{shard['name']}",
         ReleaseLabel=EMR_RELEASE,
@@ -138,31 +204,16 @@ def create_emr_for_shard(shard: dict) -> str:
     return resp["JobFlowId"]
 
 
-# ---------- 2. EMR 대기 ----------
-wait_ready = EmrJobFlowSensor.partial(
-    task_id="wait_emr_ready",
-    target_states=["WAITING"],
-    failed_states=["TERMINATED", "TERMINATED_WITH_ERRORS"],
-    aws_conn_id=AWS_CONN_ID,
-    poke_interval=30,
-    timeout=60 * 20,
-    mode="reschedule",
-    dag=dag,
-)
-
-
-# ---------- 3. 샤드별 Spark step 제출 ----------
-@task(dag=dag)
-def submit_spark_step(cluster_id: str, shard: dict) -> str:
-    client = boto3.client("emr", region_name=REGION)
-    # 결과 경로 (날짜 경로는 필요 시 KST/실행일자 등으로 교체)
-    output_path = f"s3://{OUTPUT_BUCKET}/feeds/{MARKET}/{shard['name']}/"
+# ---------- 3) 샤드별 Spark 제출 ----------
+@task
+def submit_shard_step(cluster_id: str, shard: dict) -> str:
+    client = _emr_client()
+    shard_out = f"s3://{OUTPUT_BUCKET}/{SHARD_BASE}/{shard['name']}/"
 
     args = [
         "spark-submit",
         "--deploy-mode",
         "cluster",
-        # 동적 할당 & 튜닝
         "--conf",
         "spark.dynamicAllocation.enabled=true",
         "--conf",
@@ -181,30 +232,27 @@ def submit_spark_step(cluster_id: str, shard: dict) -> str:
         "spark.sql.files.maxPartitionBytes=134217728",
         "--conf",
         "spark.sql.shuffle.partitions=800",
-        # (아이스버그 필요 없으면 제거)
-        *ICEBERG_CONF,
-        # 제출 스크립트 & 파라미터
+        *ICEBERG_CONF,  # 불필요하면 제거
         SPARK_SCRIPT_S3,
+        "--mode",
+        "shard",
         "--bucket",
         S3_BUCKET,
         "--input-prefix",
-        f"{INPUT_PREFIX}/{MARKET}",
+        INPUT_PREFIX,  # feeds/google/gmarket
         "--start-idx",
         str(shard["start"]),
         "--end-idx",
         str(shard["end"]),
         "--output",
-        output_path,
+        shard_out,
         "--max-records",
         "400000",
         "--dedupe-key",
         "itemId,ordNo",
-        "--format",
-        "parquet",
         "--target-files",
         "8",
     ]
-
     resp = client.add_job_flow_steps(
         JobFlowId=cluster_id,
         Steps=[
@@ -218,38 +266,171 @@ def submit_spark_step(cluster_id: str, shard: dict) -> str:
     return resp["StepIds"][0]
 
 
-# ---------- 4. Spark step 완료 대기 ----------
-wait_steps = EmrStepSensor.partial(
-    task_id="wait_spark_steps",
-    target_states=["COMPLETED"],
-    failed_states=["FAILED", "CANCELLED"],
-    aws_conn_id=AWS_CONN_ID,
-    poke_interval=60,
-    timeout=60 * 60,
-    mode="reschedule",
-    dag=dag,
-)
+# ---------- 4) 최종 전역 40만 cap & publish ----------
+@task
+def create_emr_final() -> str:
+    client = _emr_client()
+    resp = client.run_job_flow(
+        Name="feeds-emr-final-cap",
+        ReleaseLabel=EMR_RELEASE,
+        Applications=[{"Name": "Spark"}],
+        Instances={
+            "InstanceGroups": [
+                {
+                    "Name": "Master",
+                    "Market": "ON_DEMAND",
+                    "InstanceRole": "MASTER",
+                    "InstanceType": MASTER_INSTANCE,
+                    "InstanceCount": 1,
+                },
+                {
+                    "Name": "Core",
+                    "Market": "ON_DEMAND",
+                    "InstanceRole": "CORE",
+                    "InstanceType": CORE_INSTANCE,
+                    "InstanceCount": CORE_COUNT,
+                },
+            ],
+            "Ec2KeyName": EMR_KEY_NAME,
+            "KeepJobFlowAliveWhenNoSteps": True,
+            "TerminationProtected": False,
+        },
+        JobFlowRole=EMR_EC2_ROLE,
+        ServiceRole=EMR_SERVICE_ROLE,
+        LogUri=f"s3://{S3_BUCKET}/emr-logs/final/",
+        AutoTerminationPolicy={"IdleTimeout": 600},
+        VisibleToAllUsers=True,
+    )
+    return resp["JobFlowId"]
 
-# ---------- 5. 샤드별 클러스터 종료 ----------
-terminate = EmrTerminateJobFlowOperator.partial(
-    task_id="terminate_emr_clusters",
-    aws_conn_id=AWS_CONN_ID,
-    trigger_rule="all_done",
-    dag=dag,
-)
 
-# ===== DAG 의존성 =====
-chk = check_s3_inputs()
+@task
+def submit_final_step(final_cluster_id: str) -> str:
+    client = _emr_client()
+    final_out = f"s3://{OUTPUT_BUCKET}/{FINAL_BASE}/"
 
-cluster_ids = create_emr_for_shard.expand(shard=SHARDS)
-chk >> cluster_ids
+    args = [
+        "spark-submit",
+        "--deploy-mode",
+        "cluster",
+        "--conf",
+        "spark.dynamicAllocation.enabled=true",
+        "--conf",
+        "spark.dynamicAllocation.initialExecutors=4",
+        "--conf",
+        "spark.dynamicAllocation.minExecutors=4",
+        "--conf",
+        "spark.dynamicAllocation.maxExecutors=64",
+        "--conf",
+        "spark.executor.cores=4",
+        "--conf",
+        "spark.executor.memory=8g",
+        "--conf",
+        "spark.sql.adaptive.enabled=true",
+        "--conf",
+        "spark.sql.files.maxPartitionBytes=134217728",
+        "--conf",
+        "spark.sql.shuffle.partitions=800",
+        SPARK_SCRIPT_S3,
+        "--mode",
+        "final",
+        "--bucket",
+        OUTPUT_BUCKET,
+        "--input-prefix",
+        SHARD_BASE,  # shards/ 이하 *.tsv.gz 읽기
+        "--output",
+        final_out,
+        "--max-records",
+        "400000",
+        "--dedupe-key",
+        "itemId,ordNo",
+        "--target-files",
+        "8",
+    ]
+    resp = client.add_job_flow_steps(
+        JobFlowId=final_cluster_id,
+        Steps=[
+            {
+                "Name": "feeds-final-cap",
+                "ActionOnFailure": "CONTINUE",
+                "HadoopJarStep": {"Jar": "command-runner.jar", "Args": args},
+            }
+        ],
+    )
+    return resp["StepIds"][0]
 
-wait_ready_eachs = wait_ready.expand(job_flow_id=cluster_ids)
 
-step_ids = submit_spark_step.expand(cluster_id=cluster_ids, shard=SHARDS)
-step_ids.set_upstream(wait_ready_eachs)
+# ===== DAG 플로우 =====
+with dag:
+    urls = build_urls()
+    staged = upload_one_to_s3.partial().expand(url=urls)
 
-wait_done_eachs = wait_steps.expand(job_flow_id=cluster_ids, step_id=step_ids)
+    # 샤드 클러스터 생성/대기/실행/대기/종료
+    cluster_ids = create_emr_for_shard.expand(shard=SHARDS)
 
-term_eachs = terminate.expand(job_flow_id=cluster_ids)
-term_eachs.set_upstream(wait_done_eachs)
+    wait_ready = EmrJobFlowSensor.partial(
+        task_id="wait_emr_ready",
+        target_states=["WAITING"],
+        failed_states=["TERMINATED", "TERMINATED_WITH_ERRORS"],
+        aws_conn_id=AWS_CONN_ID,
+        poke_interval=30,
+        timeout=60 * 20,
+        mode="reschedule",
+    ).expand(job_flow_id=cluster_ids)
+
+    step_ids = submit_shard_step.expand(cluster_id=cluster_ids, shard=SHARDS)
+    step_ids.set_upstream(wait_ready)
+
+    wait_steps = EmrStepSensor.partial(
+        task_id="wait_shard_steps",
+        target_states=["COMPLETED"],
+        failed_states=["FAILED", "CANCELLED"],
+        aws_conn_id=AWS_CONN_ID,
+        poke_interval=60,
+        timeout=60 * 60,
+        mode="reschedule",
+    ).expand(job_flow_id=cluster_ids, step_id=step_ids)
+
+    terminate_shards = EmrTerminateJobFlowOperator.partial(
+        task_id="terminate_shard_clusters",
+        aws_conn_id=AWS_CONN_ID,
+        trigger_rule="all_done",
+    ).expand(job_flow_id=cluster_ids)
+
+    # 최종 전역 40만 cap & publish (샤드 종료 후 실행)
+    final_cluster = create_emr_final()
+    wait_final_ready = EmrJobFlowSensor(
+        task_id="wait_final_emr_ready",
+        job_flow_id=final_cluster,
+        target_states=["WAITING"],
+        failed_states=["TERMINATED", "TERMINATED_WITH_ERRORS"],
+        aws_conn_id=AWS_CONN_ID,
+        poke_interval=30,
+        timeout=60 * 20,
+        mode="reschedule",
+    )
+    final_step = submit_final_step(final_cluster)
+    wait_final = EmrStepSensor(
+        task_id="wait_final_step",
+        job_flow_id=final_cluster,
+        step_id=final_step,
+        target_states=["COMPLETED"],
+        failed_states=["FAILED", "CANCELLED"],
+        aws_conn_id=AWS_CONN_ID,
+        poke_interval=60,
+        timeout=60 * 60,
+        mode="reschedule",
+    )
+    terminate_final = EmrTerminateJobFlowOperator(
+        task_id="terminate_final_cluster",
+        job_flow_id=final_cluster,
+        aws_conn_id=AWS_CONN_ID,
+        trigger_rule="all_done",
+    )
+
+    # 의존성
+    staged >> cluster_ids
+    wait_final_ready.set_upstream(terminate_shards)
+    final_step.set_upstream(wait_final_ready)
+    wait_final.set_upstream(final_step)
+    terminate_final.set_upstream(wait_final)
