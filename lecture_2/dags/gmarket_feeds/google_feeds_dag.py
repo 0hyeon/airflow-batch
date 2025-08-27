@@ -14,19 +14,21 @@ from datetime import timedelta
 import requests
 from airflow.decorators import dag, task
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
-from airflow.providers.sftp.hooks.sftp import SFTPHook
+
 from airflow.operators.empty import EmptyOperator
-from kubernetes.client import (
+
+from kubernetes.client.models import (
     V1Pod,
     V1ObjectMeta,
     V1PodSpec,
-    V1Container,
-    V1ResourceRequirements,
     V1Affinity,
     V1PodAntiAffinity,
     V1WeightedPodAffinityTerm,
     V1PodAffinityTerm,
     V1LabelSelector,
+    V1Container,
+    V1ResourceRequirements,
+    V1EnvVar,
 )
 
 log = logging.getLogger(__name__)
@@ -49,36 +51,45 @@ BASES = {
 
 # ▶ 이 DAG만 경량 파드/안티어피니티 완화로 오버라이드
 EXECUTOR_CONFIG_LITE = {
-    "pod_override": V1Pod(
-        metadata=V1ObjectMeta(labels={"app": "airflow-task-lite"}),
-        spec=V1PodSpec(
-            restart_policy="Never",
-            affinity=V1Affinity(
-                pod_anti_affinity=V1PodAntiAffinity(
-                    preferred_during_scheduling_ignored_during_execution=[
-                        V1WeightedPodAffinityTerm(
-                            weight=50,
-                            pod_affinity_term=V1PodAffinityTerm(
-                                label_selector=V1LabelSelector(
-                                    match_labels={"app": "airflow-task-lite"}
+    "KubernetesExecutor": {
+        "pod_override": V1Pod(
+            metadata=V1ObjectMeta(labels={"app": "airflow-task-lite"}),
+            spec=V1PodSpec(
+                restart_policy="Never",
+                affinity=V1Affinity(
+                    pod_anti_affinity=V1PodAntiAffinity(
+                        preferred_during_scheduling_ignored_during_execution=[
+                            V1WeightedPodAffinityTerm(
+                                weight=50,
+                                pod_affinity_term=V1PodAffinityTerm(
+                                    label_selector=V1LabelSelector(
+                                        match_labels={"app": "airflow-task-lite"}
+                                    ),
+                                    topology_key="kubernetes.io/hostname",
                                 ),
-                                topology_key="kubernetes.io/hostname",
+                            )
+                        ]
+                    )
+                ),
+                containers=[
+                    V1Container(
+                        name="base",
+                        resources=V1ResourceRequirements(
+                            requests={"cpu": "100m", "memory": "256Mi"},
+                            limits={"cpu": "500m", "memory": "512Mi"},
+                        ),
+                        # ✅ 작업 파드에도 DAG import timeout 전달
+                        env=[
+                            V1EnvVar(
+                                name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                                value="1800",  # 30분 예시
                             ),
-                        )
-                    ]
-                )
+                        ],
+                    )
+                ],
             ),
-            containers=[
-                V1Container(
-                    name="base",
-                    resources=V1ResourceRequirements(
-                        requests={"cpu": "100m", "memory": "256Mi"},
-                        limits={"cpu": "500m", "memory": "512Mi"},
-                    ),
-                )
-            ],
-        ),
-    )
+        )
+    }
 }
 
 
@@ -147,6 +158,8 @@ def pipeline():
 
     @task(retries=3, retry_delay=timedelta(minutes=2))
     def upload_one_to_s3(url: str, target_info: dict) -> str:
+        from airflow.providers.sftp.hooks.sftp import SFTPHook
+
         """
         단일 .gz를 S3에 업로드 (스트리밍 업로드: 메모리 사용 최소화)
         - 404면 skip 반환
@@ -225,7 +238,6 @@ def pipeline():
     # ----- DAG 흐름 -----
     ti = get_target_info.override(executor_config=EXECUTOR_CONFIG_LITE)()
     urls = build_urls.override(executor_config=EXECUTOR_CONFIG_LITE)(ti)
-
     s3_results = (
         upload_one_to_s3.partial(target_info=ti)
         .override(pool=S3_POOL, priority_weight=1, executor_config=EXECUTOR_CONFIG_LITE)
