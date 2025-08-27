@@ -40,10 +40,7 @@ BASES = {
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
         "pod_override": k8s.V1Pod(
-            metadata=k8s.V1ObjectMeta(
-                labels={"app": "airflow-task-lite"},
-                annotations={"lite-exec": "true"},  # 검증용 표시
-            ),
+            metadata=k8s.V1ObjectMeta(labels={"app": "airflow-task-lite"}),
             spec=k8s.V1PodSpec(
                 affinity=k8s.V1Affinity(
                     pod_anti_affinity=k8s.V1PodAntiAffinity(
@@ -62,7 +59,7 @@ EXECUTOR_CONFIG_LITE = {
                 ),
                 containers=[
                     k8s.V1Container(
-                        name="base",  # pod_template의 컨테이너명과 동일
+                        name="base",
                         resources=k8s.V1ResourceRequirements(
                             requests={"cpu": "100m", "memory": "256Mi"},
                             limits={"cpu": "500m", "memory": "512Mi"},
@@ -217,19 +214,17 @@ def pipeline():
             raise
 
     # ----- DAG 흐름 -----
-    ti = get_target_info()
-    urls = build_urls(ti)
+    ti = get_target_info.override(executor_config=EXECUTOR_CONFIG_LITE)()
+
+    urls = build_urls.override(executor_config=EXECUTOR_CONFIG_LITE)(ti)
 
     # 1) S3 병렬 업로드 (이 DAG만 경량 파드/안티어피니티 완화)
     s3_results = (
         upload_one_to_s3.partial(target_info=ti)
-        .override(
-            pool=S3_POOL,
-            priority_weight=1,
-            executor_config=EXECUTOR_CONFIG_LITE,
-        )
+        .override(pool=S3_POOL, priority_weight=1, executor_config=EXECUTOR_CONFIG_LITE)
         .expand(url=urls)
     )
+
     s3_results
 
     # # 2) 배리어: S3 모든 매핑 태스크 완료 대기 (SFTP 켤 때 사용)
