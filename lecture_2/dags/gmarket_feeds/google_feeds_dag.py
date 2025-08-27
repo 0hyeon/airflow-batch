@@ -16,7 +16,18 @@ from airflow.decorators import dag, task
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.providers.sftp.hooks.sftp import SFTPHook
 from airflow.operators.empty import EmptyOperator
-from kubernetes.client import models as k8s
+from kubernetes.client import (
+    V1Pod,
+    V1ObjectMeta,
+    V1PodSpec,
+    V1Container,
+    V1ResourceRequirements,
+    V1Affinity,
+    V1PodAntiAffinity,
+    V1WeightedPodAffinityTerm,
+    V1PodAffinityTerm,
+    V1LabelSelector,
+)
 
 log = logging.getLogger(__name__)
 
@@ -38,38 +49,36 @@ BASES = {
 
 # ▶ 이 DAG만 경량 파드/안티어피니티 완화로 오버라이드
 EXECUTOR_CONFIG_LITE = {
-    "KubernetesExecutor": {
-        "pod_override": {
-            "metadata": {"labels": {"app": "airflow-task-lite"}},
-            "spec": {
-                "restartPolicy": "Never",
-                "affinity": {
-                    "podAntiAffinity": {
-                        "preferredDuringSchedulingIgnoredDuringExecution": [
-                            {
-                                "weight": 50,
-                                "podAffinityTerm": {
-                                    "labelSelector": {
-                                        "matchLabels": {"app": "airflow-task-lite"}
-                                    },
-                                    "topologyKey": "kubernetes.io/hostname",
-                                },
-                            }
-                        ]
-                    }
-                },
-                "containers": [
-                    {
-                        "name": "base",
-                        "resources": {
-                            "requests": {"cpu": "100m", "memory": "256Mi"},
-                            "limits": {"cpu": "500m", "memory": "512Mi"},
-                        },
-                    }
-                ],
-            },
-        }
-    }
+    "pod_override": V1Pod(
+        metadata=V1ObjectMeta(labels={"app": "airflow-task-lite"}),
+        spec=V1PodSpec(
+            restart_policy="Never",
+            affinity=V1Affinity(
+                pod_anti_affinity=V1PodAntiAffinity(
+                    preferred_during_scheduling_ignored_during_execution=[
+                        V1WeightedPodAffinityTerm(
+                            weight=50,
+                            pod_affinity_term=V1PodAffinityTerm(
+                                label_selector=V1LabelSelector(
+                                    match_labels={"app": "airflow-task-lite"}
+                                ),
+                                topology_key="kubernetes.io/hostname",
+                            ),
+                        )
+                    ]
+                )
+            ),
+            containers=[
+                V1Container(
+                    name="base",
+                    resources=V1ResourceRequirements(
+                        requests={"cpu": "100m", "memory": "256Mi"},
+                        limits={"cpu": "500m", "memory": "512Mi"},
+                    ),
+                )
+            ],
+        ),
+    )
 }
 
 
@@ -222,9 +231,7 @@ def pipeline():
         .override(pool=S3_POOL, priority_weight=1, executor_config=EXECUTOR_CONFIG_LITE)
         .expand(url=urls)
     )
-
     s3_results
-
     # # 2) 배리어: S3 모든 매핑 태스크 완료 대기 (SFTP 켤 때 사용)
     # barrier = EmptyOperator(task_id="wait_all_s3_done")
     # s3_results >> barrier
