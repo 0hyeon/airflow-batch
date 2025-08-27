@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 feeds_transform_sharded.py
-- mode=shard : start~end 범위의 feed_XXXXX.tsv.gz(실존하는 것만) 읽기 → 필터/중복/결정적 컷(40만) → TSV+gzip 저장
+- mode=shard : start~end 범위의 feed_XXXXX.tsv.gz(존재하는 것만) 읽기 → 필터/중복/결정적 컷(40만) → TSV+gzip 저장
                Spark가 생성한 .csv.gz를 .tsv.gz로 S3 rename 후 임시 오브젝트 정리
 - mode=final : shards/ 이하 *.tsv.gz 모두 읽기 → 같은 규칙으로 '전역 40만 cap' → 최종 경로 TSV+gzip 저장(+rename)
 """
@@ -120,7 +120,6 @@ def write_tsv_gzip(df, output_uri: str, target_files: int):
 
 
 def common_transform(df, dedupe_key: str, max_records: int):
-    # (업무 규칙에 맞게 추가 필터 보강 가능)
     if "price" in df.columns:
         df = df.filter(F.col("price").isNotNull() & (F.col("price") > 0))
     if dedupe_key.strip():
@@ -184,7 +183,6 @@ def main():
         write_tsv_gzip(df, args.output, args.target_files)
 
     elif args.mode == "final":
-        # shards/ 이하 *.tsv.gz 모두 집계
         keys = list_keys(
             args.bucket, f"{args.input_prefix}/"
         )  # e.g., feeds/<market>/shards/

@@ -2,8 +2,8 @@
 """
 feed_emr_multi_cluster_pipeline.py
 - 100개 URL을 병렬로 받아 S3에 업로드(스트리밍)
-- 8개 샤드로 나눠 여러 EMR 클러스터에서 Spark 처리
-- 마지막에 단일 EMR로 '전역 40만 cap & publish' 실행(.tsv.gz 보장)
+- 8개 샤드로 여러 EMR 클러스터에서 Spark 처리
+- 마지막에 단일 EMR로 전역 40만 cap & TSV.GZ publish
 """
 
 import math
@@ -28,12 +28,10 @@ S3_BUCKET = "gyoung0-test"  # 원본/로그 버킷
 CODE_BUCKET = "gyoung0-test"  # Spark 스크립트 저장 버킷
 OUTPUT_BUCKET = "gyoung0-test"  # 처리 결과 버킷
 
-# (기본값: gmarket — 실제 실행 시엔 build_urls()가 선택)
-DEFAULT_MARKET = "gmarket"
+DEFAULT_MARKET = "gmarket"  # 기본 market
 
 SPARK_SCRIPT_S3 = f"s3://{CODE_BUCKET}/scripts/feeds_transform_sharded.py"
 
-# 원본 URL 베이스
 BASES = {
     "gmarket": "https://im-ep.gmarket.co.kr",
     "auction": "https://im-ep.auction.co.kr",
@@ -81,7 +79,7 @@ EXECUTOR_CONFIG_LITE = {
     }
 }
 
-# (선택) Pool 사용 시: Admin > Pools 에 미리 생성해두세요. 없으면 빈 문자열로 두세요.
+# (선택) Pool 사용 시: Admin>Pools에서 생성 후 Variable로 주입(없으면 미적용)
 S3_UPLOAD_POOL = Variable.get("S3_UPLOAD_POOL", default_var="")  # 예: "s3_upload_pool"
 
 default_args = {
@@ -139,18 +137,18 @@ def decide_target_info(now_kst: pendulum.DateTime) -> dict:
     else:
         target_hour = "22"
     return {
-        "market": market,  # "gmarket" or "auction"
-        "target_hour": target_hour,  # "04" | "10" | "11" | "16" | "22"
-        "target_date": now_kst.format("YYYYMMDD"),  # "YYYYMMDD"
+        "market": market,
+        "target_hour": target_hour,
+        "target_date": now_kst.format("YYYYMMDD"),
     }
 
 
 # ---------- 0) URL/프리픽스 계산 ----------
 @task
-def build_urls() -> dict:
+def build_urls_and_prefixes() -> dict:
     """
     dag_run.conf 로 market/target_date/target_hour 오버라이드 가능
-      예: {"market":"gmarket","target_date":"20250827","target_hour":"16"}
+    예: {"market":"gmarket","target_date":"20250827","target_hour":"16"}
     """
     ctx = get_current_context()
     conf = (ctx.get("dag_run") and ctx["dag_run"].conf) or {}
@@ -162,25 +160,41 @@ def build_urls() -> dict:
     base = BASES[info["market"]]
     date = info["target_date"]
     hhmm = f"{int(info['target_hour']):02d}00"
-
     urls = [f"{base}/google/{date}/{hhmm}/feed_{i:05d}.tsv.gz" for i in range(100)]
-    print(f"[build_urls] {info} sample={urls[:3]}")
 
-    # EMR에서 사용할 동적 프리픽스
-    input_prefix = f"feeds/google/{info['market']}"
-    shard_base = f"feeds/{info['market']}/shards"
-    final_base = f"feeds/{info['market']}/final"
+    print(f"[build_urls] {info} sample={urls[:3]}")
     return {
         "info": info,
         "urls": urls,
-        "input_prefix": input_prefix,
-        "shard_base": shard_base,
-        "final_base": final_base,
+        "input_prefix": f"feeds/google/{info['market']}",
+        "shard_base": f"feeds/{info['market']}/shards",
+        "final_base": f"feeds/{info['market']}/final",
     }
 
 
-# ---------- 1) 업로드(병렬) ----------
+# ---- dict에서 필요한 값만 뽑아내는 태스크들 (expand 호환)
 @task
+def extract_urls(ctx: dict) -> list[str]:
+    return ctx["urls"]
+
+
+@task
+def extract_input_prefix(ctx: dict) -> str:
+    return ctx["input_prefix"]
+
+
+@task
+def extract_shard_base(ctx: dict) -> str:
+    return ctx["shard_base"]
+
+
+@task
+def extract_final_base(ctx: dict) -> str:
+    return ctx["final_base"]
+
+
+# ---------- 1) 업로드(병렬) ----------
+@task(retries=3, retry_delay=timedelta(minutes=2))
 def upload_one_to_s3(url: str) -> str:
     import requests
     from urllib.parse import urlparse
@@ -189,8 +203,6 @@ def upload_one_to_s3(url: str) -> str:
     from boto3.s3.transfer import TransferConfig
 
     filename = url.split("/")[-1]
-
-    # URL의 host에서 market 자동 추론 (gmarket/auction)
     host = urlparse(url).netloc.lower()
     market = (
         "gmarket"
@@ -199,7 +211,6 @@ def upload_one_to_s3(url: str) -> str:
     )
     s3_key = f"feeds/google/{market}/{filename}"
 
-    # HTTP 세션 (재시도/커넥션풀)
     sess = requests.Session()
     retry = Retry(
         total=5,
@@ -213,7 +224,6 @@ def upload_one_to_s3(url: str) -> str:
     sess.mount("http://", adapter)
     sess.mount("https://", adapter)
 
-    # HEAD 로깅
     h = sess.head(url, timeout=30)
     print(f"[HEAD] {url} -> {h.status_code}")
     if h.status_code == 404:
@@ -221,7 +231,6 @@ def upload_one_to_s3(url: str) -> str:
         return f"skip-404:{filename}"
     h.raise_for_status()
 
-    # Airflow 연결의 크레덴셜 사용
     s3_client = S3Hook(aws_conn_id=AWS_CONN_ID).get_conn()
     tcfg = TransferConfig(
         multipart_threshold=8 * 1024 * 1024,
@@ -316,7 +325,7 @@ def submit_shard_step(
         "spark.sql.files.maxPartitionBytes=134217728",
         "--conf",
         "spark.sql.shuffle.partitions=800",
-        *ICEBERG_CONF,  # 불필요하면 제거
+        *ICEBERG_CONF,  # 불필요시 제거
         SPARK_SCRIPT_S3,
         "--mode",
         "shard",
@@ -421,7 +430,7 @@ def submit_final_step(final_cluster_id: str, shard_base: str, final_base: str) -
         "--bucket",
         OUTPUT_BUCKET,
         "--input-prefix",
-        shard_base,  # ex) feeds/gmarket/shards
+        shard_base,  # ex) feeds/<market>/shards
         "--output",
         final_out,
         "--max-records",
@@ -446,14 +455,18 @@ def submit_final_step(final_cluster_id: str, shard_base: str, final_base: str) -
 
 # ===== DAG 플로우 =====
 with dag:
-    ctx = build_urls()  # returns dict: info, urls, input_prefix, shard_base, final_base
+    ctx = build_urls_and_prefixes()
+    urls = extract_urls(ctx)
+    input_pref = extract_input_prefix(ctx)
+    shard_base = extract_shard_base(ctx)
+    final_base = extract_final_base(ctx)
 
-    # 업로드 동시성/리소스 설정
+    # 업로드 매핑 (Pool/경량 파드 적용 옵션)
     pool_arg = {"pool": S3_UPLOAD_POOL} if S3_UPLOAD_POOL else {}
     staged = (
         upload_one_to_s3.partial()
         .override(executor_config=EXECUTOR_CONFIG_LITE, **pool_arg)
-        .expand(url=ctx["urls"])
+        .expand(url=urls)  # ✅ expand는 리스트만 받음
     )
 
     # 샤드 클러스터 생성 → 준비 대기 → 스텝 제출 → 완료 대기 → 종료
@@ -472,8 +485,8 @@ with dag:
     step_ids = submit_shard_step.expand(
         cluster_id=cluster_ids,
         shard=SHARDS,
-        input_prefix=ctx["input_prefix"],
-        shard_base=ctx["shard_base"],
+        input_prefix=input_pref,  # ✅ 문자열(XComArg) 브로드캐스트
+        shard_base=shard_base,  # ✅ 문자열(XComArg) 브로드캐스트
     )
     step_ids.set_upstream(wait_ready)
 
@@ -505,7 +518,7 @@ with dag:
         timeout=60 * 20,
         mode="reschedule",
     )
-    final_step = submit_final_step(final_cluster, ctx["shard_base"], ctx["final_base"])
+    final_step = submit_final_step(final_cluster, shard_base, final_base)
     wait_final = EmrStepSensor(
         task_id="wait_final_step",
         job_flow_id=final_cluster,
