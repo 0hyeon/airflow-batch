@@ -101,14 +101,37 @@ def build_shards(total_files: int = 100, num_shards: int = 8):
 SHARDS = build_shards(100, 8)
 
 
+def decide_target_info(now_kst: pendulum.DateTime) -> dict:
+    hour = now_kst.hour
+    market = "gmarket" if not (11 <= hour < 16) else "auction"
+
+    if 11 <= hour < 16:
+        target_hour = "11"
+    elif 4 <= hour < 10:
+        target_hour = "04"
+    elif 10 <= hour < 11:
+        target_hour = "10"
+    elif 16 <= hour < 22:
+        target_hour = "16"
+    else:
+        target_hour = "22"
+
+    return {
+        "market": market,  # "gmarket" or "auction"
+        "target_hour": target_hour,  # "04" | "10" | "11" | "16" | "22"
+        "target_date": now_kst.format("YYYYMMDD"),  # "YYYYMMDD"
+    }
+
+
 # ---------- 0) 100개 URL 생성 ----------
 @task
 def build_urls() -> list[str]:
-    # 실제 경로 규칙으로 수정: YYYYMMDD/HHMM
-    base = BASES[MARKET]
-    date = "00000000"  # 예시
-    hhmm = "0000"  # 예시
-    return [f"{base}/google/{date}/{hhmm}/feed_{i:05d}.tsv.gz" for i in range(100)]
+    info = decide_target_info(pendulum.now("Asia/Seoul"))
+    base = BASES[info["market"]]
+    date = info["target_date"]  # e.g. 20250827
+    hour_str = f"{int(info['target_hour']):02d}00"  # "0400","1000","1100","1600","2200"
+    urls = [f"{base}/google/{date}/{hour_str}/feed_{i:05d}.tsv.gz" for i in range(100)]
+    return urls
 
 
 # ---------- 1) 업로드(병렬) ----------
