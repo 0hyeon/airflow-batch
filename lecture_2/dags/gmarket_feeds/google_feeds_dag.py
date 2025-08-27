@@ -16,6 +16,7 @@ from airflow.decorators import dag, task
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.providers.sftp.hooks.sftp import SFTPHook
 from airflow.operators.empty import EmptyOperator
+from kubernetes.client import models as k8s
 
 log = logging.getLogger(__name__)
 
@@ -37,34 +38,40 @@ BASES = {
 
 # ▶ 이 DAG만 경량 파드/안티어피니티 완화로 오버라이드
 EXECUTOR_CONFIG_LITE = {
-    "pod_override": {
-        "metadata": {"labels": {"app": "airflow-task-lite"}},
-        "spec": {
-            "affinity": {
-                "podAntiAffinity": {
-                    "preferredDuringSchedulingIgnoredDuringExecution": [
-                        {
-                            "weight": 50,
-                            "podAffinityTerm": {
-                                "labelSelector": {
-                                    "matchLabels": {"app": "airflow-task-lite"}
-                                },
-                                "topologyKey": "kubernetes.io/hostname",
-                            },
-                        }
-                    ]
-                }
-            },
-            "containers": [
-                {
-                    "name": "base",  # pod_template_file 안 컨테이너명과 동일해야 적용
-                    "resources": {
-                        "requests": {"cpu": "100m", "memory": "256Mi"},
-                        "limits": {"cpu": "500m", "memory": "512Mi"},
-                    },
-                }
-            ],
-        },
+    "KubernetesExecutor": {
+        "pod_override": k8s.V1Pod(
+            metadata=k8s.V1ObjectMeta(
+                labels={"app": "airflow-task-lite"},
+                annotations={"lite-exec": "true"},  # 검증용 표시
+            ),
+            spec=k8s.V1PodSpec(
+                affinity=k8s.V1Affinity(
+                    pod_anti_affinity=k8s.V1PodAntiAffinity(
+                        preferred_during_scheduling_ignored_during_execution=[
+                            k8s.V1WeightedPodAffinityTerm(
+                                weight=50,
+                                pod_affinity_term=k8s.V1PodAffinityTerm(
+                                    label_selector=k8s.V1LabelSelector(
+                                        match_labels={"app": "airflow-task-lite"}
+                                    ),
+                                    topology_key="kubernetes.io/hostname",
+                                ),
+                            )
+                        ]
+                    )
+                ),
+                containers=[
+                    k8s.V1Container(
+                        name="base",  # pod_template의 컨테이너명과 동일
+                        resources=k8s.V1ResourceRequirements(
+                            requests={"cpu": "100m", "memory": "256Mi"},
+                            limits={"cpu": "500m", "memory": "512Mi"},
+                        ),
+                    )
+                ],
+                restart_policy="Never",
+            ),
+        )
     }
 }
 
