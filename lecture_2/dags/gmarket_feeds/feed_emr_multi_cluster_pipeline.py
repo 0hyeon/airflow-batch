@@ -69,16 +69,7 @@ FEEDS_UPLOAD_BATCH_SIZE = int(Variable.get("FEEDS_UPLOAD_BATCH_SIZE", default_va
 # ── 경량 파드 오버라이드(모든 태스크 공통) ─────────────────────────────
 from kubernetes.client import models as k8s
 
-EXECUTOR_CONFIG_LITE = {
-    "KubernetesExecutor": {
-        "pod_template_overrides": """
-metadata:
-  labels:
-    app: airflow-task-lite
-"""
-    }
-}
-
+EXECUTOR_CONFIG_LITE = {}
 
 default_args = {
     "owner": "airflow",
