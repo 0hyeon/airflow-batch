@@ -2,10 +2,9 @@
 """
 feed_emr_multi_cluster_pipeline.py
 - 100개 URL 병렬 수집 → S3 업로드(스트리밍)
-- 8 샤드로 여러 EMR에서 Spark 처리
-- 최종 40만 cap & TSV.GZ publish
-- ✅ 모든 태스크에 경량 파드 오버라이드 적용
-- ✅ Pool/배치 업로드 옵션으로 파드 폭주 방지
+- 8 샤드로 EMR 분산 처리 → 최종 결과 생성
+- 한 번에 한 run만 실행(max_active_runs=1)하되, run 내부는 최대 병렬
+- Pool/배치 옵션으로 파드 폭주 없이 오토스케일링과 잘 맞물리게 설계
 """
 
 import math
@@ -22,13 +21,13 @@ from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 from airflow.providers.amazon.aws.sensors.emr import EmrJobFlowSensor, EmrStepSensor
 from airflow.providers.amazon.aws.operators.emr import EmrTerminateJobFlowOperator
 
-# ── AWS/버킷 ──────────────────────────────────────────────────────────────
+# ── 기본 설정 ───────────────────────────────────────────────────────────
 AWS_CONN_ID = "aws_conn_id"
 REGION = Variable.get("AWS_DEFAULT_REGION", default_var="ap-northeast-2")
 
 S3_BUCKET = "fc-practice2"  # 원본/로그
 CODE_BUCKET = "fc-practice2"  # Spark 코드
-OUTPUT_BUCKET = "fc-practice2"  # 결과
+OUTPUT_BUCKET = "fc-practice2"  # 결과물
 
 DEFAULT_MARKET = "gmarket"
 SPARK_SCRIPT_S3 = f"s3://{CODE_BUCKET}/scripts/feeds_transform_sharded.py"
@@ -38,7 +37,7 @@ BASES = {
     "auction": "https://im-ep.auction.co.kr",
 }
 
-# ── EMR 설정 ─────────────────────────────────────────────────────────────
+# ── EMR 설정(필요 시 조정) ──────────────────────────────────────────────
 EMR_RELEASE = "emr-6.15.0"
 MASTER_INSTANCE = "m6i.xlarge"
 CORE_INSTANCE = "m6i.2xlarge"
@@ -58,56 +57,50 @@ ICEBERG_CONF = [
     f"spark.sql.catalog.glue.warehouse=s3a://{S3_BUCKET}/iceberg_warehouse/",
 ]
 
-# ── 실행/동시성 옵션 ─────────────────────────────────────────────────────
-# Pool 이름을 Airflow Variable 로 지정 (없으면 미적용)
-S3_UPLOAD_POOL = Variable.get("S3_UPLOAD_POOL", default_var="")
-# 배치 업로드: 0=끄기, 10=URL 10개씩 묶어 파드 10개만 생성
+# ── 동시성/배치/풀 ────────────────────────────────────────────────────────
+# Pool 이름(Airflow UI → Admin → Pools). 비워두면 미적용.
+S3_UPLOAD_POOL = Variable.get("S3_UPLOAD_POOL", default_var="s3_upload_pool")
+# 배치 업로드: 0이면 단건 100개를 개별 파드로, >0이면 해당 크기로 묶어 파드 수 감축
 FEEDS_UPLOAD_BATCH_SIZE = int(Variable.get("FEEDS_UPLOAD_BATCH_SIZE", default_var="0"))
 
-# ── 경량 파드 오버라이드 (모든 태스크에 적용) ────────────────────────────
-from kubernetes.client import (
-    V1Pod,
-    V1PodSpec,
-    V1ObjectMeta,
-    V1Container,
-    V1ResourceRequirements,
-)
-
+# ── 경량 파드 오버라이드(모든 태스크 공통) ─────────────────────────────
+# ⚠️ Airflow 2.6+ / K8sExecutor 기준의 정석 포맷(dict) 사용
 EXECUTOR_CONFIG_LITE = {
-    "pod_override": {
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {"labels": {"app": "airflow-task-lite"}},
-        "spec": {
-            "restartPolicy": "Never",
-            "containers": [
-                {
-                    "name": "base",  # ← 반드시 base
-                    "resources": {
-                        "requests": {
-                            "cpu": "100m",
-                            "memory": "256Mi",
-                            "ephemeral-storage": "1Gi",
+    "KubernetesExecutor": {
+        "pod_override": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {"labels": {"app": "airflow-task-lite"}},
+            "spec": {
+                "restartPolicy": "Never",
+                "containers": [
+                    {
+                        "name": "base",
+                        "resources": {
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi",
+                                "ephemeral-storage": "1Gi",
+                            },
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "512Mi",
+                                "ephemeral-storage": "2Gi",
+                            },
                         },
-                        "limits": {
-                            "cpu": "500m",
-                            "memory": "512Mi",
-                            "ephemeral-storage": "2Gi",
-                        },
-                    },
-                    # 필요시 태스크별 env 추가 가능
-                    "env": [
-                        {
-                            "name": "AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
-                            "value": "1800",
-                        }
-                    ],
-                }
-            ],
-        },
+                        "env": [
+                            # DagBag import timeout 충분히 넉넉히
+                            {
+                                "name": "AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                                "value": "1800",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
     }
 }
-
 
 default_args = {
     "owner": "airflow",
@@ -120,10 +113,10 @@ default_args = {
 dag = DAG(
     dag_id="feed_emr_multi_cluster_pipeline",
     default_args=default_args,
-    schedule_interval=None,
+    schedule_interval=None,  # 수동 트리거/외부에서만 실행
     catchup=False,
-    concurrency=256,  # ← 동시에 달릴 수 있는 TI 상한
-    max_active_runs=3,  # 이전 run 하나 때문에 막히지 않게 약간 올리기
+    concurrency=512,  # 한 run 안에서 동시에 돌 수 있는 TI 상한
+    max_active_runs=1,  # ✅ run은 항상 1개만(겹치지 않게)
     tags=["feeds", "emr", "spark", "sharded", "parallel"],
 )
 
@@ -137,8 +130,7 @@ def _emr_client():
 
 def build_shards(total_files: int = 100, num_shards: int = 8):
     size = math.ceil(total_files / num_shards)
-    shards = []
-    start = 0
+    shards, start = [], 0
     for i in range(num_shards):
         end = min(total_files - 1, start + size - 1)
         shards.append({"name": f"shard{i}", "start": start, "end": end})
@@ -171,7 +163,7 @@ def decide_target_info(now_kst: pendulum.DateTime) -> dict:
     }
 
 
-# ── 0) URL/프리픽스 ──────────────────────────────────────────────────────
+# ── 0) URL/프리픽스 계산 ────────────────────────────────────────────────
 @task
 def build_urls_and_prefixes() -> dict:
     ctx = get_current_context()
@@ -215,7 +207,7 @@ def extract_final_base(ctx: dict) -> str:
     return ctx["final_base"]
 
 
-# ── 1) 업로드(단건) 로직 (S3Hook 사용) ───────────────────────────────────
+# ── 1) 단건 업로드(스트리밍) ────────────────────────────────────────────
 def _upload_one_to_s3_python(url: str) -> str:
     import requests
     from urllib.parse import urlparse
@@ -224,7 +216,6 @@ def _upload_one_to_s3_python(url: str) -> str:
     from boto3.s3.transfer import TransferConfig
 
     filename = url.split("/")[-1]
-
     host = urlparse(url).netloc.lower()
     market = (
         "gmarket"
@@ -282,11 +273,12 @@ def upload_one_to_s3(url: str) -> str:
     return _upload_one_to_s3_python(url)
 
 
-# ── (옵션) 배치 업로드로 파드 수 축소 ────────────────────────────────────
+# ── (옵션) 배치 업로드(파드 수 줄이기) ──────────────────────────────────
 @task
 def make_chunks(urls: list[str], chunk_size: int) -> list[list[str]]:
     if chunk_size <= 0:
-        return [urls]  # 사용 안 함
+        # 배치 미사용 → 100개 각각의 단건 태스크가 되도록 "청크"는 url별 1개로 쪼갭니다
+        return [[u] for u in urls]
     return [urls[i : i + chunk_size] for i in range(0, len(urls), chunk_size)]
 
 
@@ -302,11 +294,12 @@ def upload_batch_to_s3(urls: list[str]) -> list[str]:
     return results
 
 
-# ── 2) 샤드별 EMR 생성/스텝 ──────────────────────────────────────────────
+# ── 2) 샤드 EMR 생성/스텝/종료 ──────────────────────────────────────────
 @task
 def create_emr_for_shard(shard: dict) -> str:
     client = _emr_client()
     resp = client.run_job_flow(
+        StepConcurrencyLevel=8,
         Name=f"feeds-emr-{shard['name']}",
         ReleaseLabel=EMR_RELEASE,
         Applications=[{"Name": "Spark"}],
@@ -402,7 +395,6 @@ def submit_shard_step(
     return resp["StepIds"][0]
 
 
-# ── 3) 최종 EMR/스텝 ─────────────────────────────────────────────────────
 @task
 def create_emr_final() -> str:
     client = _emr_client()
@@ -495,9 +487,8 @@ def submit_final_step(final_cluster_id: str, shard_base: str, final_base: str) -
     return resp["StepIds"][0]
 
 
-# ── DAG 플로우 ───────────────────────────────────────────────────────────
 with dag:
-    # ─ URLs/프리픽스 계산 (경량 오버라이드)
+    # ─ URLs/프리픽스(경량 파드)
     ctx = build_urls_and_prefixes.override(executor_config=EXECUTOR_CONFIG_LITE)()
     urls = extract_urls.override(executor_config=EXECUTOR_CONFIG_LITE)(ctx)
     input_pref = extract_input_prefix.override(executor_config=EXECUTOR_CONFIG_LITE)(
@@ -506,7 +497,7 @@ with dag:
     shard_base = extract_shard_base.override(executor_config=EXECUTOR_CONFIG_LITE)(ctx)
     final_base = extract_final_base.override(executor_config=EXECUTOR_CONFIG_LITE)(ctx)
 
-    # ─ 업로드: 단건 or 배치 (둘 중 하나 선택)
+    # ─ 업로드(배치 on/off). Pool 있으면 적용 → “가능한 만큼” 병렬로 돌아가다 노드 차면 대기/증설
     pool_arg = {"pool": S3_UPLOAD_POOL} if S3_UPLOAD_POOL else {}
     if FEEDS_UPLOAD_BATCH_SIZE > 0:
         chunks = make_chunks.override(executor_config=EXECUTOR_CONFIG_LITE)(
@@ -515,7 +506,7 @@ with dag:
         staged = (
             upload_batch_to_s3.partial()
             .override(executor_config=EXECUTOR_CONFIG_LITE, **pool_arg)
-            .expand(urls=chunks)
+            .expand(urls=chunks)  # chunks: list[list[str]]
         )
     else:
         staged = (
@@ -524,11 +515,10 @@ with dag:
             .expand(url=urls)
         )
 
-    # ─ 샤드 클러스터
+    # ─ 샤드 EMR: 업로드가 어느 정도 진행되면 병렬 생성/스텝 투입
     cluster_ids = create_emr_for_shard.override(
         executor_config=EXECUTOR_CONFIG_LITE
     ).expand(shard=SHARDS)
-
     wait_ready = EmrJobFlowSensor.partial(
         task_id="wait_emr_ready",
         target_states=["WAITING"],
@@ -539,14 +529,12 @@ with dag:
         mode="reschedule",
         executor_config=EXECUTOR_CONFIG_LITE,
     ).expand(job_flow_id=cluster_ids)
-
     step_ids = submit_shard_step.override(executor_config=EXECUTOR_CONFIG_LITE).expand(
         cluster_id=cluster_ids,
         shard=SHARDS,
         input_prefix=input_pref,
         shard_base=shard_base,
     )
-
     wait_steps = EmrStepSensor.partial(
         task_id="wait_shard_steps",
         target_states=["COMPLETED"],
@@ -557,7 +545,6 @@ with dag:
         mode="reschedule",
         executor_config=EXECUTOR_CONFIG_LITE,
     ).expand(job_flow_id=cluster_ids, step_id=step_ids)
-
     terminate_shards = EmrTerminateJobFlowOperator.partial(
         task_id="terminate_shard_clusters",
         aws_conn_id=AWS_CONN_ID,
@@ -601,9 +588,11 @@ with dag:
         executor_config=EXECUTOR_CONFIG_LITE,
     )
 
-    # ─ 의존성
-    staged >> cluster_ids
+    # ─ 의존성: 한 run 안에서 최대한 병렬로 돌지만 run끼리는 겹치지 않음
     wait_final_ready.set_upstream(terminate_shards)
-    final_step.set_upstream(wait_final_ready)
-    wait_final.set_upstream(final_step)
-    terminate_final.set_upstream(wait_final)
+    final_cluster = create_emr_final.override(executor_config=EXECUTOR_CONFIG_LITE)()
+    final_cluster.set_upstream(terminate_shards)
+    wait_final_ready = EmrJobFlowSensor(
+        task_id="wait_final_emr_ready",
+        job_flow_id=final_cluster,
+    )
