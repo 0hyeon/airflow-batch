@@ -18,11 +18,13 @@ data:
       restartPolicy: Never
       affinity:
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchLabels:
-                app: airflow-task
-            topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: airflow-task
+              topologyKey: kubernetes.io/hostname
       containers:
       - name: base
         image: {{.Values.worker.image}}:{{.Values.worker.imageTag}}
