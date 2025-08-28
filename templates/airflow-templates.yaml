@@ -32,13 +32,13 @@ data:
             name: airflow-{{ .Values.appName }}-config
         resources:
           requests:
-            cpu: "3"
-            memory: "5Gi"
-            ephemeral-storage: "10Gi"
+            cpu: "200m"
+            memory: "512Mi"
+            ephemeral-storage: "1Gi"
           limits:
-            cpu: "4"
-            memory: "8Gi"
-            ephemeral-storage: "20Gi"
+            cpu: "500m"
+            memory: "1Gi"
+            ephemeral-storage: "2Gi"
         volumeMounts:
         - name: airflow-pvc
           mountPath: /dags
