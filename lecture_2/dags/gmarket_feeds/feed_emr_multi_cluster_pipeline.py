@@ -554,6 +554,10 @@ with dag:
 
     # ─ 최종 EMR
     final_cluster = create_emr_final.override(executor_config=EXECUTOR_CONFIG_LITE)()
+
+    # ✅ 추가 1: 최종 클러스터는 샤드 종료 후에 생성되도록
+    final_cluster.set_upstream(terminate_shards)
+
     wait_final_ready = EmrJobFlowSensor(
         task_id="wait_final_emr_ready",
         job_flow_id=final_cluster,
@@ -565,9 +569,14 @@ with dag:
         mode="reschedule",
         executor_config=EXECUTOR_CONFIG_LITE,
     )
+
     final_step = submit_final_step.override(executor_config=EXECUTOR_CONFIG_LITE)(
         final_cluster, shard_base, final_base
     )
+
+    # ✅ 추가 2: WAITING 감지 후에만 최종 step 제출
+    final_step.set_upstream(wait_final_ready)
+
     wait_final = EmrStepSensor(
         task_id="wait_final_step",
         job_flow_id=final_cluster,
@@ -580,6 +589,7 @@ with dag:
         mode="reschedule",
         executor_config=EXECUTOR_CONFIG_LITE,
     )
+
     terminate_final = EmrTerminateJobFlowOperator(
         task_id="terminate_final_cluster",
         job_flow_id=final_cluster,
@@ -588,11 +598,17 @@ with dag:
         executor_config=EXECUTOR_CONFIG_LITE,
     )
 
-    # ─ 의존성: 한 run 안에서 최대한 병렬로 돌지만 run끼리는 겹치지 않음
-    wait_final_ready.set_upstream(terminate_shards)
-    final_cluster = create_emr_final.override(executor_config=EXECUTOR_CONFIG_LITE)()
-    final_cluster.set_upstream(terminate_shards)
-    wait_final_ready = EmrJobFlowSensor(
-        task_id="wait_final_emr_ready",
-        job_flow_id=final_cluster,
+    # ─ 의존성(명시 체인으로 깔끔하게)
+    # terminate_shards → final_cluster → wait_final_ready → final_step → wait_final → terminate_final
+    wait_final_ready.set_upstream(final_cluster)
+    wait_final.set_upstream(final_step)
+    terminate_final.set_upstream(wait_final)
+
+    (
+        terminate_shards
+        >> final_cluster
+        >> wait_final_ready
+        >> final_step
+        >> wait_final
+        >> terminate_final
     )
