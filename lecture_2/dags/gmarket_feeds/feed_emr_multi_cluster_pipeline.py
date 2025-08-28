@@ -71,27 +71,10 @@ from kubernetes.client import models as k8s
 
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_template_overrides": """
-metadata:
-  labels:
-    app: airflow-task-lite
-spec:
-  restartPolicy: Never
-  containers:
-  - name: base
-    env:
-    - name: AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT
-      value: "1800"
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-        ephemeral-storage: "1Gi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-        ephemeral-storage: "2Gi"
-"""
+        "pod_override": k8s.V1Pod(
+            metadata=k8s.V1ObjectMeta(labels={"app": "airflow-task-lite"})
+            # spec/containers는 일단 생략! (검증 에러 원인 제거)
+        )
     }
 }
 
