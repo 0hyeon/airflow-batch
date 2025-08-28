@@ -26,9 +26,9 @@ from airflow.providers.amazon.aws.operators.emr import EmrTerminateJobFlowOperat
 AWS_CONN_ID = "aws_conn_id"
 REGION = Variable.get("AWS_DEFAULT_REGION", default_var="ap-northeast-2")
 
-S3_BUCKET = "gyoung0-test"  # 원본/로그
-CODE_BUCKET = "gyoung0-test"  # Spark 코드
-OUTPUT_BUCKET = "gyoung0-test"  # 결과
+S3_BUCKET = "fc-practice2"  # 원본/로그
+CODE_BUCKET = "fc-practice2"  # Spark 코드
+OUTPUT_BUCKET = "fc-practice2"  # 결과
 
 DEFAULT_MARKET = "gmarket"
 SPARK_SCRIPT_S3 = f"s3://{CODE_BUCKET}/scripts/feeds_transform_sharded.py"
