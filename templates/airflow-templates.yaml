@@ -2,14 +2,16 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: airflow-{{ .Values.appName }}-templates
+  labels:
+    app.kubernetes.io/instance: airflow-{{ .Values.appName }}
+    app.kubernetes.io/name: airflow-{{ .Values.appName }}
 data:
   airflow-pod.yaml: |
     apiVersion: v1
     kind: Pod
-    metadata:
+    metadata: 
       labels:
-        app: airflow-task        # 기존 키 유지
-        variant: lite            # 구분용 추가 라벨
+        app: airflow-task
     spec:
       securityContext:
         runAsUser: 0
@@ -18,56 +20,56 @@ data:
       restartPolicy: Never
       affinity:
         podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 50
-            podAffinityTerm:
-              labelSelector:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
                 matchLabels:
                   app: airflow-task
               topologyKey: kubernetes.io/hostname
       containers:
-      - name: base
-        image: {{.Values.worker.image}}:{{.Values.worker.imageTag}}
-        imagePullPolicy: {{ .Values.worker.imagePullPolicy }}
-        envFrom:
-        - configMapRef:
-            name: airflow-{{ .Values.appName }}-config
-        resources:
-          requests:
-            cpu: "200m"
-            memory: "512Mi"
-            ephemeral-storage: "1Gi"
-          limits:
-            cpu: "500m"
-            memory: "1Gi"
-            ephemeral-storage: "2Gi"
-        volumeMounts:
-        - name: airflow-pvc
-          mountPath: /dags
-          subPath: airflow/airflow-{{ .Values.appName }}/dags
-        - name: airflow-pvc
-          mountPath: /logs
-          subPath: airflow/airflow-{{ .Values.appName }}/logs
-        - name: airflow-pvc
-          mountPath: /opt/airflow/data
-          subPath: airflow/airflow-{{ .Values.appName }}/data
-        - name: airflow-pvc
-          mountPath: /data
-          subPath: airflow/airflow-{{ .Values.appName }}/data
-        - name: airflow-templates
-          mountPath: /airflow-pod.yaml
-          subPath: airflow-pod.yaml
+        - name: base
+          envFrom:
+            - configMapRef:
+                name: airflow-{{ .Values.appName }}-config
+          env:
+            - name: AIRFLOW__CORE__EXECUTOR
+              value: LocalExecutor
+              imagePullPolicy: {{ .Values.worker.imagePullPolicy }}
+          resources:
+            requests: 
+              cpu: "3" 
+              memory: "5Gi"
+              ephemeral-storage: "10Gi"
+            limits: 
+              cpu: "4" 
+              memory: "8Gi"
+              ephemeral-storage: "20Gi"
+          volumeMounts:
+            - name: airflow-pvc
+              mountPath: /dags
+              subPath: airflow/airflow-{{ .Values.appName }}/dags
+            - name: airflow-pvc
+              mountPath: /logs
+              subPath: airflow/airflow-{{ .Values.appName }}/logs
+            - name: airflow-pvc
+              mountPath: /opt/airflow/data
+              subPath: airflow/airflow-{{ .Values.appName }}/data
+            - name: airflow-pvc
+              mountPath: /data
+              subPath: airflow/airflow-{{ .Values.appName }}/data
+            - name: airflow-templates
+              mountPath: /airflow-pod.yaml
+              subPath: airflow-pod.yaml
       volumes:
-      - name: airflow-pvc
-        persistentVolumeClaim:
-          claimName: nfs-pvc
-      - name: airflow-templates
-        configMap:
-          name: airflow-{{ .Values.appName }}-templates
-          items:
-          - key: airflow-pod.yaml
-            path: airflow-pod.yaml
-            mode: 0777
+        - name: airflow-pvc
+          persistentVolumeClaim:
+            claimName: nfs-pvc
+        - name: airflow-templates
+          configMap:
+            name: airflow-{{ .Values.appName }}-templates
+            items:
+              - key: airflow-pod.yaml
+                path: airflow-pod.yaml
+                mode: 0777
 
   airflow-web-config-template.py: |
     # https://github.com/apache/airflow/blob/2.3.2/airflow/config_templates/default_webserver_config.py
