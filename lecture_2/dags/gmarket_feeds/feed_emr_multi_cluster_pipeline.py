@@ -71,37 +71,27 @@ from kubernetes.client import models as k8s
 
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_override": k8s.V1Pod(
-            api_version="v1",
-            kind="Pod",
-            metadata=k8s.V1ObjectMeta(labels={"app": "airflow-task-lite"}),
-            spec=k8s.V1PodSpec(
-                restart_policy="Never",
-                containers=[
-                    k8s.V1Container(
-                        name="base",  # ← 템플릿의 메인 컨테이너 이름과 같아야 함
-                        env=[
-                            k8s.V1EnvVar(
-                                name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
-                                value="1800",
-                            )
-                        ],
-                        resources=k8s.V1ResourceRequirements(
-                            requests={
-                                "cpu": "100m",
-                                "memory": "256Mi",
-                                "ephemeral-storage": "1Gi",
-                            },
-                            limits={
-                                "cpu": "500m",
-                                "memory": "512Mi",
-                                "ephemeral-storage": "2Gi",
-                            },
-                        ),
-                    )
-                ],
-            ),
-        )
+        "pod_template_overrides": """
+metadata:
+  labels:
+    app: airflow-task-lite
+spec:
+  restartPolicy: Never
+  containers:
+  - name: base
+    env:
+    - name: AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT
+      value: "1800"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+        ephemeral-storage: "1Gi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+        ephemeral-storage: "2Gi"
+"""
     }
 }
 
