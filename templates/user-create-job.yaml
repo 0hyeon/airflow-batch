@@ -42,7 +42,7 @@ spec:
         - |
           set -e
           # DB가 살아날 때까지 대기
-          until psql "${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}" -c '\q' >/dev/null 2>&1; do
+          until pg_isready -h airflow-postgres -p 5432 -U airflow; do
             echo "Waiting for Airflow metadata DB..."; sleep 3;
           done
           # 스키마 보장 (신규/기존 상관없이)
