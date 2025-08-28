@@ -68,37 +68,38 @@ FEEDS_UPLOAD_BATCH_SIZE = int(Variable.get("FEEDS_UPLOAD_BATCH_SIZE", default_va
 # ⚠️ Airflow 2.6+ / K8sExecutor 기준의 정석 포맷(dict) 사용
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_override": k8s.V1Pod(
-            metadata=k8s.V1ObjectMeta(labels={"app": "airflow-task-lite"}),
-            spec=k8s.V1PodSpec(
-                restart_policy="Never",
-                containers=[
-                    k8s.V1Container(
-                        # Airflow 기본 task 컨테이너 이름은 보통 'base' 입니다.
-                        # (혹시 Helm 차트 커스텀으로 이름이 다르면 그 이름으로 맞추세요)
-                        name="base",
-                        env=[
-                            k8s.V1EnvVar(
-                                name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
-                                value="1800",
-                            )
+        "pod_override": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {"labels": {"app": "airflow-task-lite"}},
+            "spec": {
+                "restartPolicy": "Never",
+                "containers": [
+                    {
+                        # ← 이 name을 템플릿의 메인 컨테이너 이름과 동일하게!
+                        "name": "base",
+                        "env": [
+                            {
+                                "name": "AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                                "value": "1800",
+                            }
                         ],
-                        resources=k8s.V1ResourceRequirements(
-                            requests={
+                        "resources": {
+                            "requests": {
                                 "cpu": "100m",
                                 "memory": "256Mi",
                                 "ephemeral-storage": "1Gi",
                             },
-                            limits={
+                            "limits": {
                                 "cpu": "500m",
                                 "memory": "512Mi",
                                 "ephemeral-storage": "2Gi",
                             },
-                        ),
-                    )
+                        },
+                    }
                 ],
-            ),
-        )
+            },
+        }
     }
 }
 
