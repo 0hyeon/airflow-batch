@@ -25,6 +25,7 @@ data:
             topologyKey: kubernetes.io/hostname
       containers:
       - name: base
+        image: {{.Values.worker.image}}:{{.Values.worker.imageTag}}
         imagePullPolicy: {{ .Values.worker.imagePullPolicy }}
         envFrom:
         - configMapRef:
