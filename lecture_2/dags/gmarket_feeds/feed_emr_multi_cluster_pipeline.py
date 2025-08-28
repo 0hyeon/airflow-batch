@@ -75,23 +75,40 @@ from kubernetes.client import (
 
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_override": V1Pod(
-            metadata=V1ObjectMeta(labels={"app": "airflow-task-lite"}),
-            spec=V1PodSpec(
-                restart_policy="Never",
-                containers=[
-                    V1Container(
-                        name="base",
-                        resources=V1ResourceRequirements(
-                            requests={"cpu": "100m", "memory": "256Mi"},
-                            limits={"cpu": "500m", "memory": "512Mi"},
-                        ),
-                    )
+        "pod_override": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {"labels": {"app": "airflow-task-lite"}},
+            "spec": {
+                "restartPolicy": "Never",
+                "containers": [
+                    {
+                        "name": "base",
+                        "resources": {
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi",
+                                "ephemeral-storage": "1Gi",
+                            },
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "512Mi",
+                                "ephemeral-storage": "2Gi",
+                            },
+                        },
+                        "env": [
+                            {
+                                "name": "AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                                "value": "1800",
+                            }
+                        ],
+                    }
                 ],
-            ),
-        )
+            },
+        }
     }
 }
+
 
 default_args = {
     "owner": "airflow",
