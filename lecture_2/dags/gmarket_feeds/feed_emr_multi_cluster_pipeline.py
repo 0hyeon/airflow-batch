@@ -74,38 +74,37 @@ from kubernetes.client import (
 )
 
 EXECUTOR_CONFIG_LITE = {
-    "KubernetesExecutor": {
-        "pod_override": {
-            "apiVersion": "v1",
-            "kind": "Pod",
-            "metadata": {"labels": {"app": "airflow-task-lite"}},
-            "spec": {
-                "restartPolicy": "Never",
-                "containers": [
-                    {
-                        "name": "base",
-                        "resources": {
-                            "requests": {
-                                "cpu": "100m",
-                                "memory": "256Mi",
-                                "ephemeral-storage": "1Gi",
-                            },
-                            "limits": {
-                                "cpu": "500m",
-                                "memory": "512Mi",
-                                "ephemeral-storage": "2Gi",
-                            },
+    "pod_override": {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {"labels": {"app": "airflow-task-lite"}},
+        "spec": {
+            "restartPolicy": "Never",
+            "containers": [
+                {
+                    "name": "base",  # ← 반드시 base
+                    "resources": {
+                        "requests": {
+                            "cpu": "100m",
+                            "memory": "256Mi",
+                            "ephemeral-storage": "1Gi",
                         },
-                        "env": [
-                            {
-                                "name": "AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
-                                "value": "1800",
-                            }
-                        ],
-                    }
-                ],
-            },
-        }
+                        "limits": {
+                            "cpu": "500m",
+                            "memory": "512Mi",
+                            "ephemeral-storage": "2Gi",
+                        },
+                    },
+                    # 필요시 태스크별 env 추가 가능
+                    "env": [
+                        {
+                            "name": "AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                            "value": "1800",
+                        }
+                    ],
+                }
+            ],
+        },
     }
 }
 
@@ -123,7 +122,8 @@ dag = DAG(
     default_args=default_args,
     schedule_interval=None,
     catchup=False,
-    max_active_runs=1,
+    concurrency=256,  # ← 동시에 달릴 수 있는 TI 상한
+    max_active_runs=3,  # 이전 run 하나 때문에 막히지 않게 약간 올리기
     tags=["feeds", "emr", "spark", "sharded", "parallel"],
 )
 

@@ -27,21 +27,22 @@ data:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: base
-          imagePullPolicy: {{ .Values.worker.imagePullPolicy }}
           envFrom:
             - configMapRef:
                 name: airflow-{{ .Values.appName }}-config
           env:
             - name: AIRFLOW__CORE__EXECUTOR
               value: LocalExecutor
+              imagePullPolicy: {{ .Values.worker.imagePullPolicy }}
           resources:
-            cpu: "100m"                        
-              memory: "256Mi"                    
-              ephemeral-storage: "1Gi"           
+            requests: 
+              cpu: "3" 
+              memory: "5Gi"
+              ephemeral-storage: "10Gi"
             limits: 
-              cpu: "500m"                        
-              memory: "512Mi"                    
-              ephemeral-storage: "2Gi"           
+              cpu: "4" 
+              memory: "8Gi"
+              ephemeral-storage: "20Gi"
           volumeMounts:
             - name: airflow-pvc
               mountPath: /dags
