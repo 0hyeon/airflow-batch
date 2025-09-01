@@ -21,12 +21,10 @@ data:
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: airflow-task
-                topologyKey: kubernetes.io/hostname
+            - labelSelector:
+                matchLabels:
+                  app: airflow-task
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: base
           envFrom:
