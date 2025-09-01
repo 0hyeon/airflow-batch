@@ -222,7 +222,8 @@ def emr_process_and_rename_final_dag():
                     s3.delete_object(Bucket=bucket, Key=k)
 
     # ===== DAG 플로우 =====
-    cluster_id = create_emr_cluster().override(executor_config=EXECUTOR_CONFIG_LITE)()
+    # cluster_id = create_emr_cluster().override(executor_config=EXECUTOR_CONFIG_LITE)()
+    cluster_id = create_emr_cluster.override(executor_config=EXECUTOR_CONFIG_LITE)()
 
     wait_for_cluster = EmrJobFlowSensor(
         task_id="wait_for_cluster",
@@ -232,11 +233,13 @@ def emr_process_and_rename_final_dag():
         poke_interval=30,  # ★
         timeout=60 * 20,  # ★
         mode="reschedule",  # ★
-    ).override(executor_config=EXECUTOR_CONFIG_LITE)
+        executor_config=EXECUTOR_CONFIG_LITE,
+    )
 
-    spark_job_info = submit_spark_job(cluster_id).override(
-        executor_config=EXECUTOR_CONFIG_LITE
-    )()
+    # spark_job_info = submit_spark_job(cluster_id).override(executor_config=EXECUTOR_CONFIG_LITE)()
+    spark_job_info = submit_spark_job.override(executor_config=EXECUTOR_CONFIG_LITE)(
+        cluster_id
+    )
 
     wait_for_step = EmrStepSensor(
         task_id="wait_for_step",
@@ -247,17 +250,23 @@ def emr_process_and_rename_final_dag():
         poke_interval=60,  # ★
         timeout=60 * 60,  # ★
         mode="reschedule",  # ★
-    ).override(executor_config=EXECUTOR_CONFIG_LITE)
+        executor_config=EXECUTOR_CONFIG_LITE,
+    )
 
-    rename_files = rename_output_files(
+    # rename_files = rename_output_files(
+    #     spark_job_info["output_path"], market=spark_job_info["market"]
+    # ).override(executor_config=EXECUTOR_CONFIG_LITE)
+
+    rename_files = rename_output_files.override(executor_config=EXECUTOR_CONFIG_LITE)(
         spark_job_info["output_path"], market=spark_job_info["market"]
-    ).override(executor_config=EXECUTOR_CONFIG_LITE)
+    )
 
     terminate_cluster = EmrTerminateJobFlowOperator(
         task_id="terminate_cluster",
         job_flow_id=cluster_id,
         trigger_rule="all_done",
-    ).override(executor_config=EXECUTOR_CONFIG_LITE)
+        executor_config=EXECUTOR_CONFIG_LITE,
+    )
 
     # terminate를 rename와 병렬로 둘지, rename 이후로 둘지 선택
     wait_for_cluster >> spark_job_info >> wait_for_step
