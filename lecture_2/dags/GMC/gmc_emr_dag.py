@@ -22,24 +22,69 @@ LOG_S3_PATH = f"s3://{S3_BUCKET}/emr-logs/"
 # ★ 경량 파드 executor_config (오토스케일 트리거)
 from kubernetes.client import (
     V1Pod,
-    V1PodSpec,
     V1ObjectMeta,
+    V1PodSpec,
     V1Container,
     V1ResourceRequirements,
+    V1EnvVar,
+    V1Affinity,
+    V1PodAntiAffinity,
+    V1WeightedPodAffinityTerm,
+    V1PodAffinityTerm,
+    V1LabelSelector,
+    V1LabelSelectorRequirement,
+    V1TopologySpreadConstraint,
 )
 
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
         "pod_override": V1Pod(
-            metadata=V1ObjectMeta(labels={"app": "airflow-task-lite"}),
+            metadata=V1ObjectMeta(labels={"app": "airflow-task-lite", "role": "lite"}),
             spec=V1PodSpec(
                 restart_policy="Never",
+                # ↓ 베이스의 required를 대체: '가능하면 분산'
+                affinity=V1Affinity(
+                    pod_anti_affinity=V1PodAntiAffinity(
+                        preferred_during_scheduling_ignored_during_execution=[
+                            V1WeightedPodAffinityTerm(
+                                weight=100,
+                                pod_affinity_term=V1PodAffinityTerm(
+                                    label_selector=V1LabelSelector(
+                                        match_expressions=[
+                                            V1LabelSelectorRequirement(
+                                                key="role",
+                                                operator="In",
+                                                values=["lite", "heavy"],
+                                            )
+                                        ]
+                                    ),
+                                    topology_key="kubernetes.io/hostname",
+                                ),
+                            )
+                        ]
+                    )
+                ),
+                # ↓ 균등 분산 유도(막히진 않게)
+                topology_spread_constraints=[
+                    V1TopologySpreadConstraint(
+                        max_skew=1,
+                        topology_key="kubernetes.io/hostname",
+                        when_unsatisfiable="ScheduleAnyway",
+                        label_selector=V1LabelSelector(
+                            match_expressions=[
+                                V1LabelSelectorRequirement(
+                                    key="role", operator="In", values=["lite"]
+                                )
+                            ]
+                        ),
+                    )
+                ],
                 containers=[
                     V1Container(
-                        name="base",
+                        name="base",  # ← 반드시 베이스 컨테이너 이름과 동일해야 merge가 제대로 됨
                         resources=V1ResourceRequirements(
                             requests={
-                                "cpu": "200m",
+                                "cpu": "300m",
                                 "memory": "512Mi",
                                 "ephemeral-storage": "1Gi",
                             },
@@ -49,6 +94,12 @@ EXECUTOR_CONFIG_LITE = {
                                 "ephemeral-storage": "2Gi",
                             },
                         ),
+                        env=[
+                            V1EnvVar(
+                                name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                                value="1800",
+                            )
+                        ],
                     )
                 ],
             ),
