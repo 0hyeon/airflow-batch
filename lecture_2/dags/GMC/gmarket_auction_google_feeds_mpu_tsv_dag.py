@@ -85,21 +85,6 @@ EXECUTOR_CONFIG_LITE = {
                             ]
                         )
                     ),
-                    # 균등 분산 유도(막히진 않게)
-                    topology_spread_constraints=[
-                        V1TopologySpreadConstraint(
-                            max_skew=1,
-                            topology_key="kubernetes.io/hostname",
-                            when_unsatisfiable="ScheduleAnyway",
-                            label_selector=V1LabelSelector(
-                                match_expressions=[
-                                    V1LabelSelectorRequirement(
-                                        key="role", operator="In", values=["lite"]
-                                    )
-                                ]
-                            ),
-                        )
-                    ],
                     containers=[
                         V1Container(
                             # ⚠ base: Airflow K8sExecutor의 merge 타겟 “컨테이너 이름”
