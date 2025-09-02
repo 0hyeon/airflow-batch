@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 
 # ── 경량 파드 오버라이드 (모든 태스크 공통) ──────────────────────────────
 # * 꼭 dict 형태로 "KubernetesExecutor" → "pod_override"
+from kubernetes import client, config
 from kubernetes.client import (
     V1Pod,
     V1ObjectMeta,
@@ -51,73 +52,79 @@ from kubernetes.client import (
     V1TopologySpreadConstraint,
 )
 
+api_client = client.ApiClient()  # serializer 준비
+
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_override": V1Pod(
-            metadata=V1ObjectMeta(labels={"app": "airflow-task-lite", "role": "lite"}),
-            spec=V1PodSpec(
-                restart_policy="Never",
-                # ↓ 베이스의 required를 대체: '가능하면 분산'
-                affinity=V1Affinity(
-                    pod_anti_affinity=V1PodAntiAffinity(
-                        preferred_during_scheduling_ignored_during_execution=[
-                            V1WeightedPodAffinityTerm(
-                                weight=100,
-                                pod_affinity_term=V1PodAffinityTerm(
-                                    label_selector=V1LabelSelector(
-                                        match_expressions=[
-                                            V1LabelSelectorRequirement(
-                                                key="role",
-                                                operator="In",
-                                                values=["lite", "heavy"],
-                                            )
-                                        ]
-                                    ),
-                                    topology_key="kubernetes.io/hostname",
-                                ),
-                            )
-                        ]
-                    )
+        "pod_override": api_client.sanitize_for_serialization(
+            V1Pod(
+                api_version="v1",
+                kind="Pod",
+                metadata=V1ObjectMeta(
+                    labels={"app": "airflow-task-lite", "role": "lite"}
                 ),
-                # ↓ 균등 분산 유도(막히진 않게)
-                topology_spread_constraints=[
-                    V1TopologySpreadConstraint(
-                        max_skew=1,
-                        topology_key="kubernetes.io/hostname",
-                        when_unsatisfiable="ScheduleAnyway",
-                        label_selector=V1LabelSelector(
-                            match_expressions=[
-                                V1LabelSelectorRequirement(
-                                    key="role", operator="In", values=["lite"]
+                spec=V1PodSpec(
+                    restart_policy="Never",
+                    affinity=V1Affinity(
+                        pod_anti_affinity=V1PodAntiAffinity(
+                            preferred_during_scheduling_ignored_during_execution=[
+                                V1WeightedPodAffinityTerm(
+                                    weight=100,
+                                    pod_affinity_term=V1PodAffinityTerm(
+                                        label_selector=V1LabelSelector(
+                                            match_expressions=[
+                                                V1LabelSelectorRequirement(
+                                                    key="role",
+                                                    operator="In",
+                                                    values=["lite", "heavy"],
+                                                )
+                                            ]
+                                        ),
+                                        topology_key="kubernetes.io/hostname",
+                                    ),
                                 )
                             ]
-                        ),
-                    )
-                ],
-                containers=[
-                    V1Container(
-                        name="base",  # ← 반드시 베이스 컨테이너 이름과 동일해야 merge가 제대로 됨
-                        resources=V1ResourceRequirements(
-                            requests={
-                                "cpu": "300m",
-                                "memory": "512Mi",
-                                "ephemeral-storage": "1Gi",
-                            },
-                            limits={
-                                "cpu": "1000m",
-                                "memory": "1Gi",
-                                "ephemeral-storage": "2Gi",
-                            },
-                        ),
-                        env=[
-                            V1EnvVar(
-                                name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
-                                value="1800",
-                            )
-                        ],
-                    )
-                ],
-            ),
+                        )
+                    ),
+                    topology_spread_constraints=[
+                        V1TopologySpreadConstraint(
+                            max_skew=1,
+                            topology_key="kubernetes.io/hostname",
+                            when_unsatisfiable="ScheduleAnyway",
+                            label_selector=V1LabelSelector(
+                                match_expressions=[
+                                    V1LabelSelectorRequirement(
+                                        key="role", operator="In", values=["lite"]
+                                    )
+                                ]
+                            ),
+                        )
+                    ],
+                    containers=[
+                        V1Container(
+                            name="base",
+                            resources=V1ResourceRequirements(
+                                requests={
+                                    "cpu": "300m",
+                                    "memory": "512Mi",
+                                    "ephemeral-storage": "1Gi",
+                                },
+                                limits={
+                                    "cpu": "1000m",
+                                    "memory": "1Gi",
+                                    "ephemeral-storage": "2Gi",
+                                },
+                            ),
+                            env=[
+                                V1EnvVar(
+                                    name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                                    value="1800",
+                                )
+                            ],
+                        )
+                    ],
+                ),
+            )
         )
     }
 }
