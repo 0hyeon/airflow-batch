@@ -35,7 +35,8 @@ log = logging.getLogger(__name__)
 
 # ── 경량 파드 오버라이드 (모든 태스크 공통) ──────────────────────────────
 # * 꼭 dict 형태로 "KubernetesExecutor" → "pod_override"
-from kubernetes import client, config
+# ── imports ─────────────────────────────────────────────────────────
+from kubernetes import client  # ApiClient용
 from kubernetes.client import (
     V1Pod,
     V1ObjectMeta,
@@ -52,19 +53,17 @@ from kubernetes.client import (
     V1TopologySpreadConstraint,
 )
 
-api_client = client.ApiClient()  # serializer 준비
-
+# ── executor_config (풀 버전, 직렬화 완료) ────────────────────────────
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_override": api_client.sanitize_for_serialization(
+        "pod_override": client.ApiClient().sanitize_for_serialization(
             V1Pod(
-                api_version="v1",
-                kind="Pod",
                 metadata=V1ObjectMeta(
                     labels={"app": "airflow-task-lite", "role": "lite"}
                 ),
                 spec=V1PodSpec(
                     restart_policy="Never",
+                    # 가능하면 분산: required 대신 preferred 사용
                     affinity=V1Affinity(
                         pod_anti_affinity=V1PodAntiAffinity(
                             preferred_during_scheduling_ignored_during_execution=[
@@ -86,6 +85,7 @@ EXECUTOR_CONFIG_LITE = {
                             ]
                         )
                     ),
+                    # 균등 분산 유도(막히진 않게)
                     topology_spread_constraints=[
                         V1TopologySpreadConstraint(
                             max_skew=1,
@@ -102,6 +102,7 @@ EXECUTOR_CONFIG_LITE = {
                     ],
                     containers=[
                         V1Container(
+                            # ⚠ base: Airflow K8sExecutor의 merge 타겟 “컨테이너 이름”
                             name="base",
                             resources=V1ResourceRequirements(
                                 requests={
