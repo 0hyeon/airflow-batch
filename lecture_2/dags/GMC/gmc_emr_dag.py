@@ -36,10 +36,8 @@ from kubernetes.client import (
     V1EnvVar,
 )
 
-# 추가 import
 from kubernetes import client as k8s
 
-# 기존 V1Pod 그대로 만드는 건 유지
 _pod = k8s.V1Pod(
     api_version="v1",
     kind="Pod",
@@ -69,7 +67,7 @@ _pod = k8s.V1Pod(
         ),
         containers=[
             k8s.V1Container(
-                name="base",  # pod_template 컨테이너명과 동일
+                name="base",  # pod_template 컨테이너명과 반드시 동일
                 resources=k8s.V1ResourceRequirements(
                     requests={
                         "cpu": "300m",
@@ -84,7 +82,8 @@ _pod = k8s.V1Pod(
                 ),
                 env=[
                     k8s.V1EnvVar(
-                        name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT", value="1800"
+                        name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                        value="1800",
                     )
                 ],
             )
@@ -92,8 +91,14 @@ _pod = k8s.V1Pod(
     ),
 )
 
-# ✨ 핵심: Kubernetes ApiClient로 camelCase 직렬화
+# camelCase 직렬화 (권장)
 _pod_dict = k8s.ApiClient().sanitize_for_serialization(_pod)
+
+# ✅ 표준 키 'kubernetes' 로 전달 (하위호환 위해 둘 다 포함)
+EXECUTOR_CONFIG_LITE = {
+    "kubernetes": {"pod_override": _pod_dict},  # ← 표준 키
+    "KubernetesExecutor": {"pod_override": _pod_dict},  # ← 일부 버전/플러그인 호환
+}
 
 EXECUTOR_CONFIG_LITE = {"KubernetesExecutor": {"pod_override": _pod_dict}}
 
