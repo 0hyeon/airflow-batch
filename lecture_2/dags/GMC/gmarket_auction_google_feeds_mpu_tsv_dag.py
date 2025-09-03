@@ -51,62 +51,66 @@ from kubernetes.client import (
     V1EnvVar,
 )
 
-EXECUTOR_CONFIG_LITE = {
-    "KubernetesExecutor": {
-        "pod_override": V1Pod(  # ← 객체 그대로 (dict 아님)
-            api_version="v1",
-            kind="Pod",
-            metadata=V1ObjectMeta(labels={"app": "airflow-task-lite", "role": "lite"}),
-            spec=V1PodSpec(
-                restart_policy="Never",
-                affinity=V1Affinity(
-                    pod_anti_affinity=V1PodAntiAffinity(
-                        preferred_during_scheduling_ignored_during_execution=[
-                            V1WeightedPodAffinityTerm(
-                                weight=100,
-                                pod_affinity_term=V1PodAffinityTerm(
-                                    label_selector=V1LabelSelector(
-                                        match_expressions=[
-                                            V1LabelSelectorRequirement(
-                                                key="role",
-                                                operator="In",
-                                                values=["lite", "heavy"],
-                                            )
-                                        ]
-                                    ),
-                                    topology_key="kubernetes.io/hostname",
-                                ),
-                            )
-                        ]
-                    )
-                ),
-                containers=[
-                    V1Container(
-                        name="base",  # ← pod_template의 컨테이너 이름과 동일해야 함
-                        resources=V1ResourceRequirements(
-                            requests={
-                                "cpu": "300m",
-                                "memory": "512Mi",
-                                "ephemeral-storage": "1Gi",
-                            },
-                            limits={
-                                "cpu": "1000m",
-                                "memory": "1Gi",
-                                "ephemeral-storage": "2Gi",
-                            },
+# 추가 import
+from kubernetes import client as k8s
+
+# 기존 V1Pod 그대로 만드는 건 유지
+_pod = k8s.V1Pod(
+    api_version="v1",
+    kind="Pod",
+    metadata=k8s.V1ObjectMeta(labels={"app": "airflow-task-lite", "role": "lite"}),
+    spec=k8s.V1PodSpec(
+        restart_policy="Never",
+        affinity=k8s.V1Affinity(
+            pod_anti_affinity=k8s.V1PodAntiAffinity(
+                preferred_during_scheduling_ignored_during_execution=[
+                    k8s.V1WeightedPodAffinityTerm(
+                        weight=100,
+                        pod_affinity_term=k8s.V1PodAffinityTerm(
+                            label_selector=k8s.V1LabelSelector(
+                                match_expressions=[
+                                    k8s.V1LabelSelectorRequirement(
+                                        key="role",
+                                        operator="In",
+                                        values=["lite", "heavy"],
+                                    )
+                                ]
+                            ),
+                            topology_key="kubernetes.io/hostname",
                         ),
-                        env=[
-                            V1EnvVar(
-                                name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
-                                value="1800",
-                            )
-                        ],
+                    )
+                ]
+            )
+        ),
+        containers=[
+            k8s.V1Container(
+                name="base",  # pod_template 컨테이너명과 동일
+                resources=k8s.V1ResourceRequirements(
+                    requests={
+                        "cpu": "300m",
+                        "memory": "512Mi",
+                        "ephemeral-storage": "1Gi",
+                    },
+                    limits={
+                        "cpu": "1000m",
+                        "memory": "1Gi",
+                        "ephemeral-storage": "2Gi",
+                    },
+                ),
+                env=[
+                    k8s.V1EnvVar(
+                        name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT", value="1800"
                     )
                 ],
-            ),
-        )
-    }
-}
+            )
+        ],
+    ),
+)
+
+# ✨ 핵심: Kubernetes ApiClient로 camelCase 직렬화
+_pod_dict = k8s.ApiClient().sanitize_for_serialization(_pod)
+
+EXECUTOR_CONFIG_LITE = {"KubernetesExecutor": {"pod_override": _pod_dict}}
 
 
 # ===================== DAG =====================
