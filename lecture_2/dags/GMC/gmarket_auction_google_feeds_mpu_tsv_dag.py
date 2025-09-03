@@ -83,7 +83,7 @@ _pod = k8s.V1Pod(
         ),
         containers=[
             k8s.V1Container(
-                name="base",
+                name="base",  # pod_template_file(/airflow-pod.yaml)의 컨테이너명과 동일해야 함
                 resources=k8s.V1ResourceRequirements(
                     requests={
                         "cpu": "300m",
@@ -105,11 +105,14 @@ _pod = k8s.V1Pod(
         ],
     ),
 )
+
 _pod_dict = k8s.ApiClient().sanitize_for_serialization(_pod)
 
 EXECUTOR_CONFIG_LITE = {
+    # Airflow 2.10에서는 이 키가 정식
     "kubernetes": {"pod_override": _pod_dict},
-    "KubernetesExecutor": {"pod_override": _pod_dict},  # (옵션) 하위호환
+    # (옵션) 혹시 모를 하위호환 로그를 잠재우려면 같이 넣어도 무방
+    "KubernetesExecutor": {"pod_override": _pod_dict},
 }
 
 
