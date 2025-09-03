@@ -37,65 +37,41 @@ from kubernetes.client import (
 )
 from kubernetes import client as k8s
 
-_pod = k8s.V1Pod(
-    api_version="v1",
-    kind="Pod",
-    metadata=k8s.V1ObjectMeta(labels={"app": "airflow-task-lite", "role": "lite"}),
-    spec=k8s.V1PodSpec(
-        restart_policy="Never",
-        affinity=k8s.V1Affinity(
-            pod_anti_affinity=k8s.V1PodAntiAffinity(
-                preferred_during_scheduling_ignored_during_execution=[
-                    k8s.V1WeightedPodAffinityTerm(
-                        weight=100,
-                        pod_affinity_term=k8s.V1PodAffinityTerm(
-                            label_selector=k8s.V1LabelSelector(
-                                match_expressions=[
-                                    k8s.V1LabelSelectorRequirement(
-                                        key="role",
-                                        operator="In",
-                                        values=["lite", "heavy"],
-                                    )
-                                ]
-                            ),
-                            topology_key="kubernetes.io/hostname",
-                        ),
-                    )
-                ]
-            )
-        ),
-        containers=[
-            k8s.V1Container(
-                name="base",  # pod_template_file(/airflow-pod.yaml)의 컨테이너명과 동일해야 함
-                resources=k8s.V1ResourceRequirements(
-                    requests={
-                        "cpu": "300m",
-                        "memory": "512Mi",
-                        "ephemeral-storage": "1Gi",
-                    },
-                    limits={
-                        "cpu": "1000m",
-                        "memory": "1Gi",
-                        "ephemeral-storage": "2Gi",
-                    },
-                ),
-                env=[
-                    k8s.V1EnvVar(
-                        name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT", value="1800"
-                    )
-                ],
-            )
-        ],
-    ),
-)
-
-_pod_dict = k8s.ApiClient().sanitize_for_serialization(_pod)
-
 EXECUTOR_CONFIG_LITE = {
-    # Airflow 2.10에서는 이 키가 정식
-    "kubernetes": {"pod_override": _pod_dict},
-    # (옵션) 혹시 모를 하위호환 로그를 잠재우려면 같이 넣어도 무방
-    "KubernetesExecutor": {"pod_override": _pod_dict},
+    "KubernetesExecutor": {
+        "pod_override": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {"labels": {"app": "airflow-task-lite", "role": "lite"}},
+            "spec": {
+                "restartPolicy": "Never",
+                "containers": [
+                    {
+                        "name": "base",
+                        # 필요시 아래를 점진적으로 추가
+                        "env": [
+                            {
+                                "name": "AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                                "value": "1800",
+                            }
+                        ],
+                        "resources": {
+                            "requests": {
+                                "cpu": "300m",
+                                "memory": "512Mi",
+                                "ephemeral-storage": "1Gi",
+                            },
+                            "limits": {
+                                "cpu": "1000m",
+                                "memory": "1Gi",
+                                "ephemeral-storage": "2Gi",
+                            },
+                        },
+                    }
+                ],
+            },
+        }
+    }
 }
 
 
