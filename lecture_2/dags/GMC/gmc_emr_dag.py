@@ -21,26 +21,26 @@ LOG_S3_PATH = f"s3://{S3_BUCKET}/emr-logs/"
 
 # ★ 경량 파드 executor_config (오토스케일 트리거)
 # ── imports ─────────────────────────────────────────────────────────
-from kubernetes import client  # ApiClient용
 from kubernetes.client import (
     V1Pod,
     V1ObjectMeta,
     V1PodSpec,
-    V1Container,
-    V1ResourceRequirements,
-    V1EnvVar,
     V1Affinity,
     V1PodAntiAffinity,
     V1WeightedPodAffinityTerm,
     V1PodAffinityTerm,
     V1LabelSelector,
     V1LabelSelectorRequirement,
-    V1TopologySpreadConstraint,
+    V1Container,
+    V1ResourceRequirements,
+    V1EnvVar,
 )
 
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
         "pod_override": V1Pod(
+            api_version="v1",  # ★ 추가
+            kind="Pod",  # ★ 추가
             metadata=V1ObjectMeta(labels={"app": "airflow-task-lite", "role": "lite"}),
             spec=V1PodSpec(
                 restart_policy="Never",
@@ -67,7 +67,7 @@ EXECUTOR_CONFIG_LITE = {
                 ),
                 containers=[
                     V1Container(
-                        name="base",  # pod_template의 컨테이너 이름과 반드시 동일
+                        name="base",  # ← pod_template 컨테이너명과 반드시 동일
                         resources=V1ResourceRequirements(
                             requests={
                                 "cpu": "300m",
@@ -89,7 +89,7 @@ EXECUTOR_CONFIG_LITE = {
                     )
                 ],
             ),
-        ),
+        )
     }
 }
 
