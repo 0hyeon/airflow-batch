@@ -33,7 +33,7 @@ data:
           env:
             - name: AIRFLOW__CORE__EXECUTOR
               value: LocalExecutor
-              imagePullPolicy: {{ .Values.worker.imagePullPolicy }}
+          imagePullPolicy: {{ .Values.worker.imagePullPolicy }}
           resources:
             requests: 
               cpu: "3" 
