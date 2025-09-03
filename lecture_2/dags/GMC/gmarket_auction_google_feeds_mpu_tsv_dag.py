@@ -56,62 +56,56 @@ from kubernetes.client import (
 # ── executor_config (풀 버전, 직렬화 완료) ────────────────────────────
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_override": client.ApiClient().sanitize_for_serialization(
-            V1Pod(
-                metadata=V1ObjectMeta(
-                    labels={"app": "airflow-task-lite", "role": "lite"}
-                ),
-                spec=V1PodSpec(
-                    restart_policy="Never",
-                    # 가능하면 분산: required 대신 preferred 사용
-                    affinity=V1Affinity(
-                        pod_anti_affinity=V1PodAntiAffinity(
-                            preferred_during_scheduling_ignored_during_execution=[
-                                V1WeightedPodAffinityTerm(
-                                    weight=100,
-                                    pod_affinity_term=V1PodAffinityTerm(
-                                        label_selector=V1LabelSelector(
-                                            match_expressions=[
-                                                V1LabelSelectorRequirement(
-                                                    key="role",
-                                                    operator="In",
-                                                    values=["lite", "heavy"],
-                                                )
-                                            ]
-                                        ),
-                                        topology_key="kubernetes.io/hostname",
+        "pod_override": V1Pod(
+            metadata=V1ObjectMeta(labels={"app": "airflow-task-lite", "role": "lite"}),
+            spec=V1PodSpec(
+                restart_policy="Never",
+                affinity=V1Affinity(
+                    pod_anti_affinity=V1PodAntiAffinity(
+                        preferred_during_scheduling_ignored_during_execution=[
+                            V1WeightedPodAffinityTerm(
+                                weight=100,
+                                pod_affinity_term=V1PodAffinityTerm(
+                                    label_selector=V1LabelSelector(
+                                        match_expressions=[
+                                            V1LabelSelectorRequirement(
+                                                key="role",
+                                                operator="In",
+                                                values=["lite", "heavy"],
+                                            )
+                                        ]
                                     ),
-                                )
-                            ]
-                        )
-                    ),
-                    containers=[
-                        V1Container(
-                            # ⚠ base: Airflow K8sExecutor의 merge 타겟 “컨테이너 이름”
-                            name="base",
-                            resources=V1ResourceRequirements(
-                                requests={
-                                    "cpu": "300m",
-                                    "memory": "512Mi",
-                                    "ephemeral-storage": "1Gi",
-                                },
-                                limits={
-                                    "cpu": "1000m",
-                                    "memory": "1Gi",
-                                    "ephemeral-storage": "2Gi",
-                                },
-                            ),
-                            env=[
-                                V1EnvVar(
-                                    name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
-                                    value="1800",
-                                )
-                            ],
-                        )
-                    ],
+                                    topology_key="kubernetes.io/hostname",
+                                ),
+                            )
+                        ]
+                    )
                 ),
-            )
-        )
+                containers=[
+                    V1Container(
+                        name="base",  # pod_template의 컨테이너 이름과 반드시 동일
+                        resources=V1ResourceRequirements(
+                            requests={
+                                "cpu": "300m",
+                                "memory": "512Mi",
+                                "ephemeral-storage": "1Gi",
+                            },
+                            limits={
+                                "cpu": "1000m",
+                                "memory": "1Gi",
+                                "ephemeral-storage": "2Gi",
+                            },
+                        ),
+                        env=[
+                            V1EnvVar(
+                                name="AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT",
+                                value="1800",
+                            )
+                        ],
+                    )
+                ],
+            ),
+        ),
     }
 }
 
