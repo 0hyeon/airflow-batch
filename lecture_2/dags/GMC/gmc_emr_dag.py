@@ -38,9 +38,9 @@ from kubernetes.client import (
 
 EXECUTOR_CONFIG_LITE = {
     "KubernetesExecutor": {
-        "pod_override": V1Pod(
-            api_version="v1",  # ★ 추가
-            kind="Pod",  # ★ 추가
+        "pod_override": V1Pod(  # ← 객체 그대로 (dict 아님)
+            api_version="v1",
+            kind="Pod",
             metadata=V1ObjectMeta(labels={"app": "airflow-task-lite", "role": "lite"}),
             spec=V1PodSpec(
                 restart_policy="Never",
@@ -67,7 +67,7 @@ EXECUTOR_CONFIG_LITE = {
                 ),
                 containers=[
                     V1Container(
-                        name="base",  # ← pod_template 컨테이너명과 반드시 동일
+                        name="base",  # ← pod_template의 컨테이너 이름과 동일해야 함
                         resources=V1ResourceRequirements(
                             requests={
                                 "cpu": "300m",
