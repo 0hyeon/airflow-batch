@@ -83,7 +83,9 @@ with DAG(
     def submit_spark_job(**kwargs):
         """EMR 클러스터에 Spark 작업을 제출하는 함수"""
         ti = kwargs["ti"]
-        cluster_id = ti.xcom_pull(task_ids="create_emr_cluster_task", key="emr_cluster_id")
+        cluster_id = ti.xcom_pull(
+            task_ids="create_emr_cluster_task", key="emr_cluster_id"
+        )
         s3_hook = S3Hook(aws_conn_id=AWS_CONN_ID)
         credentials = s3_hook.get_credentials()
         client = boto3.client(
@@ -106,7 +108,7 @@ with DAG(
                     "ActionOnFailure": "CONTINUE",
                     "HadoopJarStep": {
                         "Jar": "command-runner.jar",
-                        "Args": spark_submit_args
+                        "Args": spark_submit_args,
                     },
                 }
             ],
@@ -118,7 +120,7 @@ with DAG(
         """[수정됨] 5GB 이상 대용량 파일을 지원하는 데이터 바꿔치기 함수"""
         s3_hook = S3Hook(aws_conn_id=AWS_CONN_ID)
         credentials = s3_hook.get_credentials()
-        
+
         # 대용량 파일 처리를 위해 boto3의 'S3 Resource' 객체를 생성
         s3_resource = boto3.resource(
             "s3",
@@ -131,27 +133,33 @@ with DAG(
         for market in markets:
             prod_prefix = f"feeds/kakao/{market}/"
             staging_prefix = f"feeds/kakao/{market}_staging/"
-            
+
             print(f"--- '{market}' 데이터 바꿔치기 시작 ---")
 
             # 1. 기존 Production 폴더 내용 삭제
-            keys_to_delete = s3_hook.list_keys(bucket_name=S3_BUCKET, prefix=prod_prefix)
+            keys_to_delete = s3_hook.list_keys(
+                bucket_name=S3_BUCKET, prefix=prod_prefix
+            )
             if keys_to_delete:
                 s3_hook.delete_objects(bucket=S3_BUCKET, keys=keys_to_delete)
 
             # 2. Staging 폴더 내용을 Production 폴더로 복사
-            staging_keys = s3_hook.list_keys(bucket_name=S3_BUCKET, prefix=staging_prefix)
+            staging_keys = s3_hook.list_keys(
+                bucket_name=S3_BUCKET, prefix=staging_prefix
+            )
             if not staging_keys:
-                raise ValueError(f"Staging 경로 '{staging_prefix}'에 데이터가 없습니다!")
-            
+                raise ValueError(
+                    f"Staging 경로 '{staging_prefix}'에 데이터가 없습니다!"
+                )
+
             for key in staging_keys:
                 dest_key = key.replace("_staging", "", 1)
-                
-                copy_source = {'Bucket': S3_BUCKET, 'Key': key}
+
+                copy_source = {"Bucket": S3_BUCKET, "Key": key}
                 dest_object = s3_resource.Object(S3_BUCKET, dest_key)
                 dest_object.copy(copy_source)
                 print(f"Copied {key} to {dest_key}")
-            
+
             # 3. Staging 폴더 내용 삭제
             s3_hook.delete_objects(bucket=S3_BUCKET, keys=staging_keys)
             print(f"'{market}' 데이터 바꿔치기 완료.")
@@ -200,7 +208,7 @@ with DAG(
         task_id="swap_data_from_staging_task",
         python_callable=swap_s3_data_from_staging,
     )
-    
+
     terminate_emr_cluster_task = EmrTerminateJobFlowOperator(
         task_id="terminate_emr_cluster_task",
         job_flow_id="{{ ti.xcom_pull(task_ids='create_emr_cluster_task', key='emr_cluster_id') }}",
@@ -210,5 +218,11 @@ with DAG(
     # --- 🚀 DAG 실행 순서 정의 ---
     [wait_for_gmarket_feed_task, wait_for_auction_feed_task] >> create_emr_cluster_task
 
-    create_emr_cluster_task >> wait_for_emr_cluster_task >> submit_spark_job_task >> \
-    wait_for_spark_step_task >> swap_data_task >> terminate_emr_cluster_task
+    (
+        create_emr_cluster_task
+        >> wait_for_emr_cluster_task
+        >> submit_spark_job_task
+        >> wait_for_spark_step_task
+        >> swap_data_task
+        >> terminate_emr_cluster_task
+    )

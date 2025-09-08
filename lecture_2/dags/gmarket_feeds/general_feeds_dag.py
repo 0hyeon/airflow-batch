@@ -173,7 +173,7 @@ def gmarket_general_feeds_dag_sequential():
 
     trigger = TriggerDagRunOperator(
         task_id="trigger_kakao_gmarket_auction_emr_processing",
-        trigger_dag_id="kakao_gmarket_auction_emr_processing",
+        trigger_dag_id="kakao_gmarket_auction_emr_with_staging",
         conf={
             "run_ds": "{{ ds }}",
             "gmarket_key": "s3://gyoung0-test/feeds/general/combined_gmarket_feed.csv.gz",
