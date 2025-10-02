@@ -8,6 +8,10 @@ import pandas as pd
 import io
 from airflow.operators.python import get_current_context
 
+
+from boto3.s3.transfer import TransferConfig
+from botocore.config import Config as BotoConfig
+
 # ───────────────── Kubernetes 경량 파드 오버라이드 ─────────────────
 from kubernetes.client import (
     V1Pod,
@@ -58,12 +62,12 @@ EXECUTOR_CONFIG_LITE = {
                     resources=V1ResourceRequirements(
                         requests={
                             "cpu": "300m",
-                            "memory": "512Mi",
+                            "memory": "1Gi",
                             "ephemeral-storage": "1Gi",
                         },
                         limits={
                             "cpu": "1000m",
-                            "memory": "1Gi",
+                            "memory": "2Gi",
                             "ephemeral-storage": "2Gi",
                         },
                     ),
@@ -131,11 +135,13 @@ def process_and_reupload_feeds_in_s3_dag():
         task_id="process_and_upload_to_s3",
         executor_config=EXECUTOR_CONFIG_LITE,
         pool="lite_pool",
+        retries=2,
+        retry_delay=pendulum.duration(minutes=3),
     )
     def process_and_upload_to_s3(source_s3_key: str, destination_s3_key: str):
         """
-        S3에서 파일을 스트리밍으로 읽어 pandas로 updated_at 컬럼을 제거한 뒤,
-        다시 S3의 다른 경로로 업로드합니다.
+        S3에서 파일을 안전하게(멀티파트+재시도) 내려받아 pandas로 처리한 후,
+        다시 멀티파트 업로드로 저장합니다.
         """
         try:
             aws_conn = BaseHook.get_connection(AWS_CONN_ID)
@@ -147,22 +153,33 @@ def process_and_reupload_feeds_in_s3_dag():
             print("AWS Connection ID not found. Falling back to default boto3 session.")
             session = boto3.Session()
 
-        s3 = session.client("s3")
+        # s3 클라이언트에 표준 재시도 정책 적용
+        boto_cfg = BotoConfig(retries={"max_attempts": 10, "mode": "standard"})
+        s3 = session.client("s3", config=boto_cfg)
 
         print(f"Processing s3://{S3_BUCKET}/{source_s3_key}")
 
         try:
-            # 1. S3에서 파일 읽기 (스트리밍)
-            s3_response = s3.get_object(Bucket=S3_BUCKET, Key=source_s3_key)
+            # 1) S3 → 메모리 버퍼(BytesIO)로 안전 다운로드 (멀티파트+재시도)
+            dl_cfg = TransferConfig(
+                multipart_threshold=8 * 1024 * 1024,
+                multipart_chunksize=16 * 1024 * 1024,
+                max_concurrency=6,
+            )
+            download_buf = io.BytesIO()
+            s3.download_fileobj(S3_BUCKET, source_s3_key, download_buf, Config=dl_cfg)
+            download_buf.seek(0)
 
-            # 2. Pandas로 데이터 처리
-            df = pd.read_csv(s3_response["Body"], sep="\t", compression="gzip")
+            # 2) pandas 처리 (gzip 입력)
+            df = pd.read_csv(download_buf, sep="\t", compression="gzip")
 
             if "updated_at" in df.columns:
                 df = df.drop(columns=["updated_at"])
                 print("Successfully removed 'updated_at' column.")
             else:
                 print("'updated_at' column not found, skipping removal.")
+
+            # 3) 결과를 gzip으로 메모리 버퍼에 쓰기
             output_buffer = io.BytesIO()
             df.to_csv(
                 output_buffer,
@@ -171,11 +188,16 @@ def process_and_reupload_feeds_in_s3_dag():
                 compression="gzip",
                 encoding="utf-8",
             )
-            output_buffer.seek(0)  # 버퍼의 커서를 맨 앞으로 이동
+            output_buffer.seek(0)
 
-            # 4. 메모리 버퍼의 내용을 S3로 업로드 (스트리밍)
-            s3.put_object(
-                Bucket=S3_BUCKET, Key=destination_s3_key, Body=output_buffer.getvalue()
+            # 4) 메모리 버퍼 → S3 멀티파트 업로드(재시도 내장)
+            ul_cfg = TransferConfig(
+                multipart_threshold=8 * 1024 * 1024,
+                multipart_chunksize=16 * 1024 * 1024,
+                max_concurrency=6,
+            )
+            s3.upload_fileobj(
+                output_buffer, S3_BUCKET, destination_s3_key, Config=ul_cfg
             )
 
             print(f"Successfully uploaded to s3://{S3_BUCKET}/{destination_s3_key}")
