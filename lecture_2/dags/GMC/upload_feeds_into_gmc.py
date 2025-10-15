@@ -6,8 +6,12 @@ from airflow.exceptions import AirflowException
 import boto3
 import pandas as pd
 import io
+import json
 from airflow.operators.python import get_current_context
-
+from pathlib import Path
+import threading
+import paramiko
+import os
 
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig
@@ -83,9 +87,20 @@ EXECUTOR_CONFIG_LITE = {
 }
 # ───────────────────────────────────────────────────────────────────
 
-
 S3_BUCKET = "gyoung0-test"
 AWS_CONN_ID = "aws_conn_id"
+
+# 마켓별 SFTP Connection ID 매핑
+SFTP_CONN_MAP = {
+    "gmarket": "gmarket_sftp",
+    "auction": "auction_sftp",
+}
+
+# K8s에서 RW 보장되는 경로(로그 폴더). 필요 시 env ROLL_OUT_STATE_FILE로 경로 지정
+SCHEDULE_FILE = Path(
+    os.environ.get("ROLL_OUT_STATE_FILE", "/opt/airflow/logs/schedule.json")
+)
+file_lock = threading.Lock()
 
 
 @dag(
@@ -94,55 +109,155 @@ AWS_CONN_ID = "aws_conn_id"
     schedule=None,
     catchup=False,
     max_active_runs=1,
-    tags=["gmc", "s3", "dynamic", "triggered"],
+    tags=["gmc", "sftp", "cumulative", "dynamic", "triggered"],
     default_args={
         "pool": "lite_pool",  # 기본 풀을 라이트로
         "executor_config": EXECUTOR_CONFIG_LITE,  # 기본 파드 스펙을 라이트로
         "queue": "kubernetes",  # KubernetesExecutor 큐(환경에 따라 생략 가능)
     },
 )
-def process_and_reupload_feeds_in_s3_dag():
+def process_and_upload_feeds_to_sftp_cumulatively_dag():
 
     @task(
         executor_config=EXECUTOR_CONFIG_LITE,
         pool="lite_pool",
     )
-    def generate_s3_process_list():
+    def generate_s3_process_list_cumulatively():
         """
-        Trigger로 전달받은 market 값을 사용하여 S3 경로 목록을 생성합니다.
+        schedule.json을 기반으로 점진적 배포 스케줄을 실행합니다.
+        Trigger로 전달받은 market 값을 사용하여 S3 경로를 동적으로 설정합니다.
         market 값이 없으면 'gmarket'을 기본값으로 사용합니다.
         """
+        # --- 1. Trigger로부터 market 값 가져오기 ---
         ctx = get_current_context()
-        market = (ctx.get("dag_run") and ctx["dag_run"].conf.get("market")) or "gmarket"
+        conf = (ctx.get("dag_run") and ctx["dag_run"].conf) or {}
+        market = (conf.get("market") or "gmarket").lower()
+        print(f"Executing cumulative rollout for market: {market}")
 
-        print(f"Generating file list for market: {market}")
+        # SFTP 연결 정보 확인
+        sftp_conn_id = SFTP_CONN_MAP.get(market)
+        if not sftp_conn_id:
+            raise AirflowException(f"No SFTP connection ID found for market: {market}")
+        print(f"Using SFTP connection: {sftp_conn_id}")
 
-        # 원본 파일들이 있는 S3 경로
+        # --- 2. 상태파일 준비 ---
+        if not SCHEDULE_FILE.exists():
+            SCHEDULE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(SCHEDULE_FILE, "w") as f:
+                json.dump(
+                    {
+                        "is_paused": False,
+                        "total_feeds": 100,
+                        "rollout_start_date": pendulum.now(
+                            "Asia/Seoul"
+                        ).to_date_string(),
+                        "last_run_date": "",
+                        "daily_run_count": 0,
+                    },
+                    f,
+                    indent=2,
+                )
+            print(f"Initialized schedule file at {SCHEDULE_FILE}")
+
+        # --- 3. 스케줄 기반 배포율 계산 ---
+        FIRST_DAY_SCHEDULE = [5, 10, 15, 20]
+        SUBSEQUENT_DAYS_SCHEDULE = [40, 40, 40, 80, 100]
+
+        today_str = pendulum.now("Asia/Seoul").to_date_string()
+        current_percent = 0
+
+        with file_lock:
+            with open(SCHEDULE_FILE, "r") as f:
+                schedule_data = json.load(f)
+
+            is_paused = schedule_data.get("is_paused", False)
+
+            total_feeds = schedule_data["total_feeds"]
+            start_date_str = schedule_data["rollout_start_date"]
+            last_run_date = schedule_data.get("last_run_date", "")
+            daily_run_count = schedule_data.get("daily_run_count", 0)
+
+            if is_paused:
+                print("=======Rollout is PAUSED===========")
+            elif (not last_run_date) or (today_str > last_run_date):
+                print(f"New day detected. Resetting daily run count for {today_str}.")
+                daily_run_count = 0
+                last_run_date = today_str
+
+            start_date = pendulum.parse(start_date_str)
+            today = pendulum.parse(today_str)
+            days_elapsed = (today - start_date).in_days()
+
+            if days_elapsed < 0:
+                print("Rollout has not started yet.")
+                current_percent = 0
+            elif days_elapsed == 0:
+                print(f"Day 1: Processing run #{daily_run_count + 1}")
+                if daily_run_count < len(FIRST_DAY_SCHEDULE):
+                    current_percent = FIRST_DAY_SCHEDULE[daily_run_count]
+                else:
+                    current_percent = FIRST_DAY_SCHEDULE[-1]
+            else:
+                day_index = days_elapsed - 1
+                print(f"Day {days_elapsed + 1}: Applying fixed daily percentage.")
+                if day_index < len(SUBSEQUENT_DAYS_SCHEDULE):
+                    current_percent = SUBSEQUENT_DAYS_SCHEDULE[day_index]
+                else:
+                    current_percent = SUBSEQUENT_DAYS_SCHEDULE[-1]
+
+            if not is_paused:
+                schedule_data["last_run_date"] = last_run_date
+                schedule_data["daily_run_count"] = daily_run_count + 1
+
+                with open(SCHEDULE_FILE, "w") as f:
+                    json.dump(schedule_data, f, indent=2)
+                print("State updated for the next run")
+            else:
+                if days_elapsed == 0:
+                    print(
+                        f"Day 1: Maintaining run #{daily_run_count + 1} at {current_percent}%"
+                    )
+                else:
+                    print(
+                        f"Day {days_elapsed + 1}: Maintaining fixed percentage at {current_percent}%"
+                    )
+
+        # --- 4. 동적 market 값을 사용하여 파일 목록 생성 ---
+        end_index = int(total_feeds * (current_percent / 100))
+        print(
+            f"Applying {current_percent}%. Processing files from index 0 to {end_index - 1}."
+        )
+
+        if end_index == 0:
+            return []
+
         source_prefix = f"feeds/google/{market}/GMC_processed_final"
-        # 처리 후 저장될 S3 경로
-        destination_prefix = f"feeds/google/{market}/GMC_upload_ready"
 
         file_mappings = [
             {
-                "source_s3_key": f"{source_prefix}/{market}_feed_{i:03d}.txt.gz",
-                "destination_s3_key": f"{destination_prefix}/{market}_feed_{i:03d}.txt.gz",
+                "s3_key": f"{source_prefix}/{market}_feed_{i:03d}.txt.gz",
+                "remote_filename": f"{market}_feed_{i:03d}.txt.gz",
+                "sftp_conn_id": sftp_conn_id,
             }
-            for i in range(100)
+            for i in range(0, end_index)
         ]
+
         return file_mappings
 
     @task(
-        task_id="process_and_upload_to_s3",
+        task_id="process_and_upload_to_sftp",
         executor_config=EXECUTOR_CONFIG_LITE,
         pool="lite_pool",
-        retries=2,
-        retry_delay=pendulum.duration(minutes=3),
+        retries=3,
+        retry_delay=pendulum.duration(minutes=5),
     )
-    def process_and_upload_to_s3(source_s3_key: str, destination_s3_key: str):
+    def process_and_upload_to_sftp(
+        s3_key: str, remote_filename: str, sftp_conn_id: str
+    ):
         """
-        S3에서 파일을 안전하게(멀티파트+재시도) 내려받아 pandas로 처리한 후,
-        다시 멀티파트 업로드로 저장합니다.
+        S3에서 파일을 읽어 'updated_at' 컬럼을 제거한 후, SFTP로 스트리밍 업로드합니다.
         """
+        # AWS S3 연결
         try:
             aws_conn = BaseHook.get_connection(AWS_CONN_ID)
             session = boto3.Session(
@@ -157,29 +272,28 @@ def process_and_reupload_feeds_in_s3_dag():
         boto_cfg = BotoConfig(retries={"max_attempts": 10, "mode": "standard"})
         s3 = session.client("s3", config=boto_cfg)
 
-        print(f"Processing s3://{S3_BUCKET}/{source_s3_key}")
+        # SFTP 연결 정보 가져오기
+        sftp_conn = BaseHook.get_connection(sftp_conn_id)
+        host = sftp_conn.host
+        port = int(sftp_conn.port or 22)
+        username = sftp_conn.login
+        password = sftp_conn.password
+
+        transport = None
+        sftp = None
 
         try:
-            # 1) S3 → 메모리 버퍼(BytesIO)로 안전 다운로드 (멀티파트+재시도)
-            dl_cfg = TransferConfig(
-                multipart_threshold=8 * 1024 * 1024,
-                multipart_chunksize=16 * 1024 * 1024,
-                max_concurrency=6,
-            )
-            download_buf = io.BytesIO()
-            s3.download_fileobj(S3_BUCKET, source_s3_key, download_buf, Config=dl_cfg)
-            download_buf.seek(0)
+            # S3에서 파일 읽기 및 처리
+            print(f"Reading from S3: s3://{S3_BUCKET}/{s3_key}")
+            s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+            df = pd.read_csv(s3_response["Body"], sep="\t", compression="gzip")
 
-            # 2) pandas 처리 (gzip 입력)
-            df = pd.read_csv(download_buf, sep="\t", compression="gzip")
-
+            # updated_at 컬럼 제거
             if "updated_at" in df.columns:
                 df = df.drop(columns=["updated_at"])
-                print("Successfully removed 'updated_at' column.")
-            else:
-                print("'updated_at' column not found, skipping removal.")
+                print(f"Removed 'updated_at' column from {s3_key}")
 
-            # 3) 결과를 gzip으로 메모리 버퍼에 쓰기
+            # 처리된 데이터를 메모리 버퍼에 저장
             output_buffer = io.BytesIO()
             df.to_csv(
                 output_buffer,
@@ -190,30 +304,40 @@ def process_and_reupload_feeds_in_s3_dag():
             )
             output_buffer.seek(0)
 
-            # 4) 메모리 버퍼 → S3 멀티파트 업로드(재시도 내장)
-            ul_cfg = TransferConfig(
-                multipart_threshold=8 * 1024 * 1024,
-                multipart_chunksize=16 * 1024 * 1024,
-                max_concurrency=6,
-            )
-            s3.upload_fileobj(
-                output_buffer, S3_BUCKET, destination_s3_key, Config=ul_cfg
-            )
+            # SFTP 연결 및 업로드
+            print(f"Connecting to SFTP: {host}:{port} as {username}")
+            transport = paramiko.Transport((host, port))
+            transport.connect(username=username, password=password)
+            sftp = paramiko.SFTPClient.from_transport(transport)
 
-            print(f"Successfully uploaded to s3://{S3_BUCKET}/{destination_s3_key}")
+            print(f"Uploading to SFTP: {remote_filename}")
+            with sftp.file(remote_filename, "wb") as remote_file:
+                remote_file.set_pipelined(True)
+                # 버퍼의 내용을 청크 단위로 업로드
+                chunk_size = 1024 * 2048  # 2MB chunks
+                while True:
+                    chunk = output_buffer.read(chunk_size)
+                    if not chunk:
+                        break
+                    remote_file.write(chunk)
+
+            print(f"Successfully uploaded {remote_filename} to SFTP")
 
         except Exception as e:
-            print(f"An error occurred: {e}")
-            raise
+            raise AirflowException(f"Failed to process and upload {s3_key}: {e}")
+
+        finally:
+            if sftp:
+                sftp.close()
+            if transport:
+                transport.close()
 
     # DAG 흐름 정의
-    file_list = generate_s3_process_list()
-    upload_tasks = process_and_upload_to_s3.expand_kwargs(file_list)
-
-    file_list >> upload_tasks
+    file_list = generate_s3_process_list_cumulatively()
+    process_and_upload_to_sftp.expand_kwargs(file_list)
 
 
-process_and_reupload_feeds_in_s3_dag()
+process_and_upload_feeds_to_sftp_cumulatively_dag()
 
 
 # # -*- coding: utf-8 -*-
