@@ -264,15 +264,16 @@ def gmarket_google_feeds_tsv_direct_dag():
     ).expand(url=urls)
 
     # 모두 성공 후 EMR DAG 트리거 (경량 파드 + lite_pool)
-    trigger_emr_dag = TriggerDagRunOperator(
-        task_id="trigger_emr_dag",
-        trigger_dag_id="gmc_gmarket_auction_emr_process_and_rename_final_v2",
-        conf={"market": "{{ ti.xcom_pull(task_ids='get_target_info')['market'] }}"},
-        executor_config=EXECUTOR_CONFIG_LITE,
-        pool="lite_pool",
-    )
+    # trigger_emr_dag = TriggerDagRunOperator(
+    #     task_id="trigger_emr_dag",
+    #     trigger_dag_id="gmc_gmarket_auction_emr_process_and_rename_final_v2",
+    #     conf={"market": "{{ ti.xcom_pull(task_ids='get_target_info')['market'] }}"},
+    #     executor_config=EXECUTOR_CONFIG_LITE,
+    #     pool="lite_pool",
+    # )
 
-    uploaded >> trigger_emr_dag
+    # uploaded >> trigger_emr_dag
+    uploaded
 
 
 dag = gmarket_google_feeds_tsv_direct_dag()
