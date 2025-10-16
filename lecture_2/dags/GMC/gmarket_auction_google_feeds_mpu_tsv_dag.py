@@ -6,6 +6,8 @@ G마켓/옥션 Google Feeds → S3 TSV 업로드 (쿠버네티스 풀 기반)
 - 모든 태스크는 경량 파드로 오버라이드 (KubernetesExecutor + pod_override)
 - 로컬 구현과 의미론 동일: 404는 태스크 실패 처리, S3 ExtraArgs 미설정, 동일 TransferConfig 적용
 - 완료 후 EMR DAG 트리거
+
+- G마켓/옥션 상품 피드 파일을 만들고(S3에 업로드) → 모두 성공하면 후속 작업을 자동으로 트리거
 """
 
 import logging
