@@ -293,28 +293,40 @@ def process_and_upload_feeds_to_sftp_cumulatively_dag():
             _ensure_remote_dir(sftp, target_dir)
 
             remote_path = os.path.join(target_dir, remote_filename)
-            tmp_path = remote_path + ".tmp"
+            print(f"[sftp] uploading(final) → {remote_path}")
+            buf.seek(0)
+            written = 0
 
-            print(f"[sftp] uploading → {remote_path}")
-            # 큰 파일도 스트리밍
-            with sftp.file(tmp_path, "wb") as rf:
+            # 최종 파일명으로 바로 업로드
+            with sftp.file(remote_path, "wb") as rf:
                 rf.set_pipelined(True)
                 chunk = buf.read(2 * 1024 * 1024)  # 2MB
                 while chunk:
                     rf.write(chunk)
+                    written += len(chunk)
                     chunk = buf.read(2 * 1024 * 1024)
 
-            # 4) 원자적 치환
-            sftp.rename(tmp_path, remote_path)
-            print(f"[sftp] uploaded: {remote_path}")
+            # 업로드 정합성 확인(선택이지만 권장)
+            st = sftp.stat(remote_path)
+            if st.st_size != written:
+                try:
+                    sftp.remove(remote_path)  # 불완전 파일 제거
+                except Exception:
+                    pass
+                raise AirflowException(
+                    f"Uploaded size mismatch: remote={st.st_size}, written={written}"
+                )
+
+            print(f"[sftp] uploaded(final): {remote_path} ({st.st_size} bytes)")
 
         except Exception as e:
-            # 실패 시 tmp 제거 시도
+            # 예외 시 반쯤 올라간 최종 파일 정리
             try:
-                sftp.remove(tmp_path)
+                sftp.remove(remote_path)
             except Exception:
                 pass
             raise AirflowException(f"SFTP upload failed for {remote_filename}: {e}")
+
         finally:
             try:
                 sftp.close()
