@@ -3,6 +3,7 @@ from airflow.providers.amazon.aws.sensors.emr import EmrJobFlowSensor, EmrStepSe
 from airflow.providers.amazon.aws.operators.emr import EmrTerminateJobFlowOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.models.dagrun import DagRun
+from datetime import timedelta
 from airflow.exceptions import AirflowException
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 import pendulum
@@ -319,6 +320,9 @@ def emr_process_and_rename_final_dag():
         job_flow_id=cluster_id,
         step_id=main_spark_job_info["step_id"],
         aws_conn_id=AWS_CONN_ID,
+        mode="reschedule",
+        poke_interval=60,
+        execution_timeout=timedelta(hours=2),
     )
 
     combine_job_info = submit_combine_job(
@@ -331,6 +335,9 @@ def emr_process_and_rename_final_dag():
         job_flow_id=cluster_id,
         step_id=combine_job_info["step_id"],
         aws_conn_id=AWS_CONN_ID,
+        mode="reschedule",
+        poke_interval=60,
+        execution_timeout=timedelta(hours=1),
     )
 
     rename_files = rename_final_files(
