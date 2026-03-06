@@ -105,6 +105,13 @@ spec:
             - |
               set -e
 
+              # 0) NFS 마운트가 실제로 동작할 때까지 대기 (무한 hang 방지)
+              echo "Checking NFS readiness..."
+              until timeout 10 ls /airflow >/dev/null 2>&1; do
+                echo "NFS not yet operational, retrying in 5s..."; sleep 5;
+              done
+              echo "NFS mount is operational."
+
               # 1) Postgres 서버가 응답할 때까지 대기 (postgres DB 기준)
               until psql -h airflow-postgres -p 5432 -U airflow -d postgres -c '\q' >/dev/null 2>&1; do
                 echo "Waiting for Postgres (postgres db)..."; sleep 3;
