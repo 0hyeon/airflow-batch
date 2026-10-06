@@ -40,10 +40,17 @@ HTTP_TIMEOUT_SEC = 300
 HTTP_POOL_SIZE = 50
 RETRY_TOTAL = 3
 
-# 2026-10-07 분할 업로드 기간에 수집을 건너뛸 (날짜, KST 시각) 조합
-# 10시: gmarket 배치가 11:06에 EMR 완료되며 GMC_processed_final 을 덮어씀
-# 11시: auction 배치 (SFTP DAG max_active_runs=1 과 경합 방지, 옥션 미운영)
-SKIP_COLLECT_SLOTS = {("2026-10-07", 10), ("2026-10-07", 11)}
+# 분할 업로드 기간에 수집을 건너뛸 (날짜, KST 시각) 조합
+# 10/06 22시: 10/07 04시 배치가 결과물을 덮어쓰므로 실행 이득이 없다.
+#             EMR 비용과 실패 리스크만 남아 생략한다.
+# 10/07 10시: gmarket 배치가 11:06에 EMR 완료되며 GMC_processed_final 을 덮어써
+#             분할 도중 구간별로 데이터가 섞인다.
+# 10/07 11시: auction 배치 (SFTP DAG max_active_runs=1 과 경합 방지, 옥션 미운영)
+SKIP_COLLECT_SLOTS = {
+    ("2026-10-06", 22),
+    ("2026-10-07", 10),
+    ("2026-10-07", 11),
+}
 
 log = logging.getLogger(__name__)
 
