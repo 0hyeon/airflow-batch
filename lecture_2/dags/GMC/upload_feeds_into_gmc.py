@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 import io
 import os
-import json
 import pendulum
 import boto3
 import pandas as pd
 import paramiko
-from pathlib import Path
 from datetime import timedelta
 
 from airflow.decorators import dag, task
@@ -95,18 +93,28 @@ SFTP_CONN_MAP = {
     "auction": "auction_sftp",
 }
 
-# (선택) 스케줄 상태파일 — NFS 공유가 확실하지 않다면 Variable/S3로 바꾸는 걸 권장
-DAGS_FOLDER = Path(__file__).parent.resolve()
-SCHEDULE_FILE = DAGS_FOLDER / "schedule.json"
+# ── 분할 업로드 설정 (2026-10-07 한정) ─────────────────────────────
+# 9/28~10/2 피드 미갱신분이 한 번에 반영되면 변경량이 과도하므로,
+# 100개 피드를 6등분해 10~15시 정각마다 구간별로 올려 부하를 분산한다.
+#
+# SPLIT_DATE 당일 scheduled run  → 분할 업로드
+# SPLIT_START 이후 manual run    → 전체 업로드 (16·22시 배치 트리거)
+# SPLIT_START 이전 manual run    → 차단 (04시 배치가 전체를 먼저 올리는 것 방지)
+# SPLIT_DATE 경과 후 scheduled   → 빈 목록 → 평시 운영 자동 복귀 (원복 작업 불필요)
+TOTAL_FEEDS = 100
+SPLIT_COUNT = 6
+SPLIT_DATE = "2026-10-07"
+SPLIT_HOURS = [10, 11, 12, 13, 14, 15]
+SPLIT_START = pendulum.datetime(2026, 10, 7, 10, 0, tz="Asia/Seoul")
 
 
 @dag(
     dag_id="upload_feeds_to_sftp_dynamically",
     start_date=pendulum.datetime(2025, 10, 16, tz="Asia/Seoul"),
-    schedule=None,
+    schedule="0 10-15 * * *",
     catchup=False,
     max_active_runs=1,
-    tags=["gmc", "sftp", "cumulative", "dynamic", "triggered"],
+    tags=["gmc", "sftp", "split", "dynamic", "triggered"],
     default_args={
         "pool": "lite_pool",
         "queue": "kubernetes",
@@ -114,11 +122,11 @@ SCHEDULE_FILE = DAGS_FOLDER / "schedule.json"
         "owner": "airflow",
     },
 )
-def process_and_upload_feeds_to_sftp_cumulatively_dag():
+def process_and_upload_feeds_to_sftp_dag():
     """
     S3(GMC_processed_final) → (updated_at 제거) → SFTP 업로드
     - EXECUTOR_CONFIG_LITE 적용: 경량 파드로 병렬 처리
-    - schedule.json 기반 점진적(누적) 업로드
+    - SPLIT_DATE 당일은 구간 분할, 그 외는 전체 업로드
     """
 
     # ───────────────────────── 유틸 ─────────────────────────
@@ -182,17 +190,30 @@ def process_and_upload_feeds_to_sftp_cumulatively_dag():
     # ───────────────────────── Tasks ─────────────────────────
 
     @task
-    def generate_s3_process_list_cumulatively():
+    def generate_s3_process_list_by_part():
         """
-        schedule.json을 기반으로 업로드 비율 계산 후, 업로드 대상 목록을 생성
+        업로드 대상 목록 생성.
+
+        [동작 모드]
+          - 분할 업로드 : SPLIT_DATE 당일, SPLIT_HOURS 정각의 scheduled run
+                          → 100개를 SPLITS 등분한 구간만 업로드
+          - 전체 업로드 : 그 외 manual(EMR TriggerDagRunOperator) run
+          - 미동작     : SPLIT_START 이전 manual run / 분할 대상 아닌 scheduled run
+
+        SPLIT_START 이전 manual을 차단하는 이유:
+          분할 시작 전에 04시 배치가 EMR을 거쳐 SFTP를 자동 트리거하면
+          전체 100개가 먼저 올라가 분할 자체가 무의미해지기 때문.
+
+        SPLIT_DATE 경과 후에는 scheduled run이 빈 목록을 반환하므로
+        별도 원복 작업 없이 자동으로 전체 업로드(평시 운영)로 복귀한다.
         """
         ctx = get_current_context()
-        market = (
-            ctx.get("dag_run") and (ctx["dag_run"].conf or {}).get("market")
-        ) or "gmarket"
-        market = str(market).lower()
+        dag_run = ctx.get("dag_run")
+        conf = (dag_run.conf if dag_run else None) or {}
+        run_type = dag_run.run_type if dag_run else "manual"
 
-        print(f"[generate] market={market}")
+        market = str(conf.get("market") or "gmarket").lower()
+        print(f"[generate] market={market} run_type={run_type}")
 
         # --- 'auction' 마켓일 경우, 여기서 실행을 중단하고 빈 리스트를 반환 ---
         if market == "auction":
@@ -203,46 +224,44 @@ def process_and_upload_feeds_to_sftp_cumulatively_dag():
         if not sftp_conn_id:
             raise AirflowException(f"No SFTP connection ID for market: {market}")
 
-        # ── 스케줄 계산(간단화: 파일 없으면 100%) ──
-        if not SCHEDULE_FILE.exists():
-            print("schedule.json not found -> fallback to 100%")
-            current_percent = 100
-            total_feeds = 100
+        now = pendulum.now("Asia/Seoul")
+        part = conf.get("part")  # 수동 지정이 최우선
+
+        if part is None:
+            if run_type == "scheduled":
+                if now.to_date_string() == SPLIT_DATE and now.hour in SPLIT_HOURS:
+                    part = SPLIT_HOURS.index(now.hour)
+                else:
+                    print(f"[generate] {now} is not a split slot -> skip")
+                    return []
+            elif now < SPLIT_START:
+                print(f"[generate] before SPLIT_START({SPLIT_START}) -> skip")
+                return []
+
+        if part is None:
+            indices = range(TOTAL_FEEDS)
+            print(f"[generate] FULL upload: 000..{TOTAL_FEEDS - 1:03d}")
         else:
-            with open(SCHEDULE_FILE, "r") as f:
-                sched = json.load(f)
-            total_feeds = int(sched.get("total_feeds", 100))
-            first = sched.get("FIRST_DAY_SCHEDULE", [5, 10, 15, 20])
-            nexts = sched.get("SUBSEQUENT_DAYS_SCHEDULE", [40, 40, 40, 60, 80, 100])
-
-            start_date = pendulum.parse(sched["rollout_start_date"])
-            today = pendulum.now("Asia/Seoul").date()
-            days_elapsed = (today - start_date.date()).days
-
-            if days_elapsed <= 0:
-                run_idx = int(sched.get("daily_run_count", 0))
-                current_percent = first[min(run_idx, len(first) - 1)]
-                sched["daily_run_count"] = run_idx + 1
-            else:
-                day_index = days_elapsed - 1
-                current_percent = nexts[min(day_index, len(nexts) - 1)]
-            # 상태 저장
-            sched["last_run_date"] = str(today)
-            with open(SCHEDULE_FILE, "w") as f:
-                json.dump(sched, f, indent=2)
-
-        end_index = int(total_feeds * (current_percent / 100.0))
-        print(f"[generate] rollout={current_percent}% → 0..{max(end_index-1, -1)}")
-
-        if end_index == 0:
-            return []
+            part = int(part)
+            if not 0 <= part < SPLIT_COUNT:
+                raise AirflowException(
+                    f"part must be 0..{SPLIT_COUNT - 1}, got {part}"
+                )
+            base, rem = divmod(TOTAL_FEEDS, SPLIT_COUNT)
+            start = part * base + min(part, rem)
+            end = start + base + (1 if part < rem else 0)
+            indices = range(start, end)
+            print(
+                f"[generate] part={part}/{SPLIT_COUNT - 1} → "
+                f"{start:03d}..{end - 1:03d} ({end - start} files)"
+            )
 
         source_prefix = f"feeds/google/{market}/GMC_processed_final"
         # remote_dir은 Connection Extras로도 전달 가능 (없으면 기본 경로)
         remote_dir_default = f"/incoming/google/{market}"
 
         items = []
-        for i in range(end_index):
+        for i in indices:
             items.append(
                 {
                     "s3_key": f"{source_prefix}/{market}_feed_{i:03d}.txt.gz",
@@ -338,8 +357,8 @@ def process_and_upload_feeds_to_sftp_cumulatively_dag():
                 pass
 
     # ───────────────────── DAG 흐름 ─────────────────────
-    file_list = generate_s3_process_list_cumulatively()
+    file_list = generate_s3_process_list_by_part()
     _ = process_and_upload_to_sftp.expand_kwargs(file_list)
 
 
-process_and_upload_feeds_to_sftp_cumulatively_dag()
+process_and_upload_feeds_to_sftp_dag()

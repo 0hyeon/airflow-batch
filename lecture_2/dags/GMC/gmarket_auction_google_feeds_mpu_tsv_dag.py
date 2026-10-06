@@ -24,7 +24,7 @@ from urllib3.util.retry import Retry
 from airflow.decorators import dag, task
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
-from airflow.exceptions import AirflowException
+from airflow.exceptions import AirflowException, AirflowSkipException
 
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig
@@ -39,6 +39,11 @@ AWS_REGION = "ap-northeast-2"
 HTTP_TIMEOUT_SEC = 300
 HTTP_POOL_SIZE = 50
 RETRY_TOTAL = 3
+
+# 2026-10-07 분할 업로드 기간에 수집을 건너뛸 (날짜, KST 시각) 조합
+# 10시: gmarket 배치가 11:06에 EMR 완료되며 GMC_processed_final 을 덮어씀
+# 11시: auction 배치 (SFTP DAG max_active_runs=1 과 경합 방지, 옥션 미운영)
+SKIP_COLLECT_SLOTS = {("2026-10-07", 10), ("2026-10-07", 11)}
 
 log = logging.getLogger(__name__)
 
@@ -161,6 +166,16 @@ def gmarket_google_feeds_tsv_direct_dag():
         """현재 시간 기준 마켓/타겟 시각 결정."""
         now_kst = pendulum.now("Asia/Seoul")
         h = now_kst.hour
+
+        # 2026-10-07 분할 업로드 보호
+        # 10~15시에 04시 피드를 6등분해 SFTP로 올리는 동안
+        # GMC_processed_final 이 갱신되면 구간별로 데이터가 섞이므로 수집을 건너뛴다.
+        # (10시=gmarket 배치가 11:06에 완료되며 S3를 덮어씀, 11시=auction)
+        # 날짜 조건이라 10/8부터는 자동으로 평시 동작한다.
+        if (now_kst.to_date_string(), h) in SKIP_COLLECT_SLOTS:
+            raise AirflowSkipException(
+                f"split-upload guard: skip collection at {now_kst} (S3 freeze)"
+            )
         if 11 <= h < 16:
             market = "auction"
             target_hour = "11"
