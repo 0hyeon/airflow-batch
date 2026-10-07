@@ -111,7 +111,7 @@ SPLIT_START = pendulum.datetime(2026, 10, 7, 10, 0, tz="Asia/Seoul")
 @dag(
     dag_id="upload_feeds_to_sftp_dynamically",
     start_date=pendulum.datetime(2025, 10, 16, tz="Asia/Seoul"),
-    schedule="0 10-15 * * *",
+    schedule=None,
     catchup=False,
     max_active_runs=1,
     tags=["gmc", "sftp", "split", "dynamic", "triggered"],
